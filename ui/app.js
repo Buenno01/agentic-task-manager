@@ -1,4 +1,5 @@
 import { anexarDependencias } from "./dependencias.js";
+import { anexarSubtarefas } from "./subtarefas.js";
 const API = new URLSearchParams(location.search).get("api") ?? "http://127.0.0.1:3000";
 const TOKEN_KEY = "atm-token";
 const _fetch = window.fetch.bind(window);
@@ -182,6 +183,13 @@ async function carregar() {
       h.textContent = "histórico";
       h.addEventListener("click", () => document.dispatchEvent(new CustomEvent("abrir-historico", { detail: { id: t.id, title: t.title } })));
       li.append(h);
+      const chamarApi = (caminho, metodo, corpo) =>
+        fetch(`${API}${caminho}`, {
+          method: metodo,
+          headers: { "content-type": "application/json" },
+          body: corpo === undefined ? undefined : JSON.stringify(corpo),
+        });
+      anexarSubtarefas(li, t, chamarApi, carregar, (m) => (erro.textContent = m));
       anexarDependencias(
         li,
         t,

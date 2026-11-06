@@ -75,3 +75,13 @@ Dados da Execução ficam na tabela lateral `tarefa_execucao` (objetivo, reposit
 - Estados: `iniciar-execucao` (Na fila→Em execução), `aguardar-humano-execucao`, `retomar-execucao`, `validar-execucao` (→Em validação), `concluir-execucao` (→Concluído).
 - `GET|PATCH /tarefas/:id/execucao`: editar repositório principal, critérios, entregáveis ou permissões (valor diferente) de plano Aprovado ou de Tarefa em Execução devolve-a a Exploração · "Plano pronto para aprovação" (evento `mudanca-material`); exige nova Aprovação.
 
+## Subtarefas (RF2, RF3)
+
+Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas.ts`; lógica em `src/api/subtarefas.ts` e `src/domain/subtarefas.ts`).
+
+- `POST /tarefas` com `parentId`: cria Subtarefa sempre em Exploração · Novo (agente ou humano). Agente com `phase: "Execução"` recebe 403; mãe inexistente, 404. Cria o evento `subtarefa-criada` na mãe.
+- `PATCH /tarefas/:id` `{title?, description?}`: só humano, só Subtarefa (evento `editar`).
+- `POST /tarefas/:id/aprovar-subtarefa` (humano; Subtarefa em Novo → Aprovado) ou `rejeitar`/`reabrir`. A aprovada segue sozinha (ex.: `converter-execucao`), sem esperar a mãe.
+- Ajuste por comentário: `POST /tarefas/:id/comentarios` na Subtarefa ou na mãe (ticket 05).
+- `GET /tarefas/:id` (e `GET /tarefas`) devolvem `maeId`, `subtarefas[{id,title,state,decisao}]` e `resolucaoSubtarefas {total,aprovadas,rejeitadas,resolvida}`. Quando a última Subtarefa é aprovada/rejeitada grava o evento `mae-resolvida` na mãe; reabrir desfaz a resolução.
+

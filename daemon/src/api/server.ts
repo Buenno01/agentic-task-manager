@@ -20,6 +20,7 @@ import { abrirArea } from "../db/area.ts";
 import { criarArea } from "./area.ts";
 import { abrirExecucao } from "../db/execucao.ts";
 import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
+import { abrirModuloSubtarefas } from "./subtarefas.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -57,6 +58,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const coment = abrirComentarios(opts.dbPath);
   const deps = abrirModuloDependencias(opts.dbPath, repo);
   const prios = abrirPrioridades(opts.dbPath);
+  const subs = abrirModuloSubtarefas(opts.dbPath, repo);
   const areaDb = abrirArea(opts.dbPath);
   const area = criarArea(repo, ctx, areaDb);
   const comContexto = <T extends { id: string }>(t: T) =>
@@ -64,6 +66,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       ...t,
       contextId: ctx.contextoDaTarefa(t.id),
       ...deps.anexar(t.id),
+      ...subs.anexar(t.id),
       priority: prios.obter(t.id),
     });
   const cons = abrirConsolidado(opts.dbPath);
@@ -106,12 +109,13 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         const t = repo.obterTarefa(ma[1]);
         if (!t) return enviar(res, 404, { error: "Não encontrado" });
         if (t.phase !== "Exploração" || !tr.de.includes(t.state as never)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
-        const bloqueio = deps.antes(t, ma[2]);
+        const bloqueio = deps.antes(t, ma[2]) ?? subs.antes(t, ma[2]);
         if (bloqueio) return enviar(res, bloqueio.status, bloqueio.corpo);
         const { motivo } = await lerJson(req);
         const m = typeof motivo === "string" ? motivo : "";
         repo.transicionar(t.id, { autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: m });
         deps.depois(t, ma[2], rotuloAutor(autor), m);
+        subs.depois(t, ma[2], rotuloAutor(autor));
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
       const rx = rotaExecucao({ repo, store: exec, autor, metodo: req.method ?? "GET", path, corpo: () => lerJson(req) });
@@ -157,12 +161,25 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         const contextId = entrada.contextId ?? null;
         if (contextId !== null && (typeof contextId !== "string" || !ctx.obter(contextId)))
           throw new ErroValidacao("Contexto não existe");
+        const sc = subs.avaliarCriacao(entrada, autor);
+        if ("erro" in sc) return enviar(res, sc.erro.status, sc.erro.corpo);
         const naExecucao = entrada.phase === "Execução";
         if (naExecucao && !apenasHumano(autor)) return enviar(res, 403, { error: "Apenas o humano pode criar na Execução" });
         const tarefa = naExecucao ? criarDiretoNaExecucao(exec, autor, entrada) : novaTarefa(entrada);
         if (!naExecucao) repo.inserirTarefa(tarefa);
         ctx.associarTarefa(tarefa.id, contextId);
+        if (sc.maeId) subs.vincular(tarefa, sc.maeId, autor);
         return enviar(res, 201, comContexto(tarefa));
+      }
+      // Tarefa individual (com Subtarefas e resolução) e edição de Subtarefa.
+      const mu = path.match(/^\/tarefas\/([^/]+)$/);
+      if (mu && req.method === "GET") {
+        const t = repo.obterTarefa(mu[1]);
+        return t ? enviar(res, 200, comContexto(t)) : enviar(res, 404, { error: "Não encontrado" });
+      }
+      if (mu && req.method === "PATCH") {
+        const r = await subs.editar(mu[1], autor, () => lerJson(req));
+        return enviar(res, r.status, r.corpo);
       }
       const mt = path.match(/^\/tarefas\/([^/]+)\/contexto$/);
       if (mt && req.method === "PUT") {
@@ -196,6 +213,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               coment.close();
               deps.close();
               prios.close();
+              subs.close();
               areaDb.close();
               cons.close();
               r();
