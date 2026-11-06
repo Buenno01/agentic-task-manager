@@ -85,3 +85,9 @@ Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas
 - Ajuste por comentário: `POST /tarefas/:id/comentarios` na Subtarefa ou na mãe (ticket 05).
 - `GET /tarefas/:id` (e `GET /tarefas`) devolvem `maeId`, `subtarefas[{id,title,state,decisao}]` e `resolucaoSubtarefas {total,aprovadas,rejeitadas,resolvida}`. Quando a última Subtarefa é aprovada/rejeitada grava o evento `mae-resolvida` na mãe; reabrir desfaz a resolução.
 
+## Busca textual (RF11)
+
+`GET /busca?q=<texto>[&contexto=<id>[&subarvore=1]]` (autenticação como nas demais rotas; `q` vazio ou sem letras/números → 400; `contexto` inexistente → 400). Devolve uma lista unificada de `{tipo, id, snippet, taskId, contextId[, version]}` com `tipo` ∈ `tarefa` (título+descrição), `comentario`, `consolidado` (qualquer versão; `id` = Contexto, `version` = versão que casou) e `anexo` (texto extraído; `taskId` null se o anexo é de um Contexto). O `snippet` marca os termos entre `[colchetes]`. Busca insensível a acentos e caixa (FTS5 `unicode61 remove_diacritics 2`); todas as palavras devem casar (AND) e operadores FTS na consulta (`"`, `*`, `OR`, `NEAR`, `:`) são tratados como texto literal. Com `contexto`, só resultados daquele Contexto; com `subarvore=1`, também dos descendentes. Resultados sem Contexto só aparecem sem filtro. Limite de 100 por tipo.
+
+Índices: `tarefas_fts` e `comentarios_fts` (`daemon/src/db/busca.ts`) são mantidos por triggers SQLite nas tabelas `tarefas` e `tarefa_comentarios`; ao subir, o daemon indexa linhas pré-existentes (backfill), então bancos antigos funcionam sem migração manual. Consolidado e anexos reutilizam `consolidado_fts` e `anexos_fts`. A UI tem uma caixa de busca que respeita o filtro de Contexto da lista.
+

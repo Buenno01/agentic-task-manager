@@ -21,6 +21,8 @@ import { criarArea } from "./area.ts";
 import { abrirExecucao } from "../db/execucao.ts";
 import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
 import { abrirModuloSubtarefas } from "./subtarefas.ts";
+import { abrirBusca } from "../db/busca.ts";
+import { rotaBusca } from "./busca.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -70,6 +72,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       priority: prios.obter(t.id),
     });
   const cons = abrirConsolidado(opts.dbPath);
+  const buscaDb = abrirBusca(opts.dbPath);
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -93,6 +96,11 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         autor = a;
       }
       if (path === "/auditoria" && req.method === "GET") return enviar(res, 200, audit.listar());
+      const rb = rotaBusca(
+        { busca: buscaDb, anexos, consolidado: cons, contextoExiste: (i) => !!ctx.obter(i), contextos: () => ctx.listar(), contextoDaTarefa: (i) => ctx.contextoDaTarefa(i) },
+        req.method ?? "GET", path, url.searchParams,
+      );
+      if (rb) return enviar(res, rb.status, rb.corpo);
       const rh = rotaHistorico(
         { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i) },
         req.method ?? "GET", path, rotuloAutor(autor), () => lerJson(req),
@@ -216,6 +224,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               subs.close();
               areaDb.close();
               cons.close();
+              buscaDb.close();
               r();
             });
             server.closeAllConnections();
