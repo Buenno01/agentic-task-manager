@@ -10,6 +10,9 @@ import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos } from "./anexos.ts"
 import { abrirComentarios } from "../db/comentarios.ts";
 import { rotaHistorico } from "./historico.ts";
 import { abrirModuloDependencias } from "./dependencias.ts";
+import { abrirPrioridades } from "../db/prioridade.ts";
+import { ordenarPorPrioridade } from "../domain/prioridade.ts";
+import { definirPrioridade } from "./prioridade.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -46,7 +49,13 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
   const coment = abrirComentarios(opts.dbPath);
   const deps = abrirModuloDependencias(opts.dbPath, repo);
-  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id), ...deps.anexar(t.id) });
+  const prios = abrirPrioridades(opts.dbPath);
+  const comContexto = <T extends { id: string }>(t: T) => ({
+    ...t,
+    contextId: ctx.contextoDaTarefa(t.id),
+    ...deps.anexar(t.id),
+    priority: prios.obter(t.id),
+  });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -105,14 +114,21 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       }
       const rd = await deps.rota(req.method ?? "GET", path, () => lerJson(req));
       if (rd) return enviar(res, rd.status, rd.corpo);
+      const mp = path.match(/^\/tarefas\/([^/]+)\/prioridade$/);
+      if (mp && req.method === "PUT") {
+        if (!repo.obterTarefa(mp[1])) return enviar(res, 404, { error: "Não encontrado" });
+        const r = definirPrioridade(prios, mp[1], autor, await lerJson(req));
+        return enviar(res, r.status, r.corpo);
+      }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
-        repo.listarTarefas().map(comContexto),
+        ordenarPorPrioridade(repo.listarTarefas().map(comContexto)),
       );
       if (rc) {
         const r = await rc;
         return enviar(res, r.status, r.corpo);
       }
-      if (path === "/tarefas" && req.method === "GET") return enviar(res, 200, repo.listarTarefas().map(comContexto));
+      if (path === "/tarefas" && req.method === "GET")
+        return enviar(res, 200, ordenarPorPrioridade(repo.listarTarefas().map(comContexto)));
       if (path === "/tarefas" && req.method === "POST") {
         const entrada = await lerJson(req);
         const contextId = entrada.contextId ?? null;
@@ -153,6 +169,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               anexos.close();
               coment.close();
               deps.close();
+              prios.close();
               r();
             });
             server.closeAllConnections();

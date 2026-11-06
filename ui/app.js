@@ -108,7 +108,16 @@ async function carregar() {
   lista.replaceChildren(
     ...tarefas.map((t) => {
       const li = document.createElement("li");
-      li.append(`[${t.phase} · ${t.state}] ${t.contextId ? "(" + (nomes.get(t.contextId) ?? "?") + ") " : ""}${t.title}${t.description ? " — " + t.description : ""} `);
+      li.append(`[${t.phase} · ${t.state}] [${t.priority.nivel}${t.priority.origem === "agente" ? " (sugerida)" : ""}] ${t.contextId ? "(" + (nomes.get(t.contextId) ?? "?") + ") " : ""}${t.title}${t.description ? " — " + t.description : ""} `);
+      if (t.priority.origem !== "padrão") li.title = `Prioridade por ${t.priority.autor}. Impacto: ${t.priority.justificativa.impacto}; urgência: ${t.priority.justificativa.urgencia}; esforço: ${t.priority.justificativa.esforco}`;
+      const sel = document.createElement("select");
+      for (const n of ["baixa", "média", "alta", "urgente"]) sel.append(new Option(n, n, false, n === t.priority.nivel));
+      sel.addEventListener("change", async () => {
+        const r = await fetch(`${API}/tarefas/${t.id}/prioridade`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ nivel: sel.value }) });
+        if (!r.ok) erro.textContent = (await r.json()).error;
+        await carregar();
+      });
+      li.append(sel, " ");
       for (const acao of ACOES[t.state] ?? []) {
         const b = document.createElement("button");
         b.type = "button";
