@@ -8,6 +8,8 @@ services:
       ATM_HOST: 0.0.0.0
       ATM_PORT: "3000"
       ATM_DB_PATH: /data/db/atm.db
+      ATM_HUMAN_TOKEN: ${ATM_HUMAN_TOKEN:?defina ATM_HUMAN_TOKEN no .env}
+      ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:-}
     ports:
       - "127.0.0.1:${ATM_PORT:-3000}:3000"
     volumes:

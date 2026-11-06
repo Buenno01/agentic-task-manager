@@ -4,6 +4,8 @@ import { abrirBanco } from "../db/index.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirAuditoria } from "../db/auditoria.ts";
+import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
   url: string;
@@ -13,10 +15,10 @@ export interface Daemon {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PUT, PATCH, OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type, authorization",
 };
 
-function enviar(res: ServerResponse, status: number, corpo?: unknown) {
+function envio(res: ServerResponse, status: number, corpo?: unknown) {
   res.writeHead(status, { ...CORS, "content-type": "application/json; charset=utf-8" });
   res.end(corpo === undefined ? undefined : JSON.stringify(corpo));
 }
@@ -31,16 +33,39 @@ async function lerJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   throw new ErroValidacao("Corpo da requisição inválido");
 }
 
-export function startDaemon(opts: { dbPath: string; port: number; host?: string }): Promise<Daemon> {
+export function startDaemon(opts: { dbPath: string; port: number; host?: string; credenciais?: Credenciais }): Promise<Daemon> {
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
+  const audit = abrirAuditoria(opts.dbPath);
   const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
+    // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
+    let autor: Autor = { tipo: "humano" };
+    let path = "/";
+    const enviar = (r: ServerResponse, status: number, corpo?: unknown) => {
+      audit.registrar(rotuloAutor(autor), req.method ?? "GET", path, status);
+      envio(r, status, corpo);
+    };
     try {
       const url = new URL(req.url ?? "/", "http://x");
-      const path = url.pathname;
+      path = url.pathname;
       if (req.method === "OPTIONS") return enviar(res, 204);
+      // Healthcheck sem autenticação (usado pelo docker compose).
       if (path === "/health" && req.method === "GET") return enviar(res, 200, { status: "ok" });
+      if (opts.credenciais) {
+        const a = autenticar(opts.credenciais, req.headers.authorization);
+        if (!a) {
+          audit.registrar("anonimo", req.method ?? "GET", path, 401);
+          return envio(res, 401, { error: "Não autenticado" });
+        }
+        autor = a;
+      }
+      if (path === "/auditoria" && req.method === "GET") return enviar(res, 200, audit.listar());
+      // Rotas de aprovação: só o humano (guarda reutilizável). Lógica de aprovação virá em outro ticket.
+      if (/^\/tarefas\/[^/]+\/aprovar$/.test(path) && req.method === "POST") {
+        if (!apenasHumano(autor)) return enviar(res, 403, { error: "Agentes não podem aprovar" });
+        return enviar(res, 501, { error: "Aprovação ainda não implementada" });
+      }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
       );
@@ -85,6 +110,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string 
             server.close(() => {
               repo.close();
               ctx.close();
+              audit.close();
               r();
             });
             server.closeAllConnections();
