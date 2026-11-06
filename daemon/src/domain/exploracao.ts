@@ -15,6 +15,8 @@ export const TRANSICOES: Record<string, Transicao> = {
   retomar: { de: ["Aguardando humano"], para: "Explorando", apenasHumano: false },
   "plano-pronto": { de: ["Explorando"], para: "Plano pronto para aprovação", apenasHumano: false },
   aprovar: { de: ["Plano pronto para aprovação"], para: "Aprovado", apenasHumano: true },
+  /** Dependências brandas (RF5): ignora dependência pendente; só o humano, e é registrado. */
+  "forcar-inicio": { de: ["Autorizada para explorar"], para: "Explorando", apenasHumano: true },
   rejeitar: { de: ["Novo", "Plano pronto para aprovação"], para: "Rejeitado", apenasHumano: true },
   reabrir: { de: ["Rejeitado"], para: "Novo", apenasHumano: true },
 };

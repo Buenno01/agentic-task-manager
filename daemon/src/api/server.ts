@@ -9,6 +9,7 @@ import { abrirAnexos } from "../db/anexos.ts";
 import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos } from "./anexos.ts";
 import { abrirComentarios } from "../db/comentarios.ts";
 import { rotaHistorico } from "./historico.ts";
+import { abrirModuloDependencias } from "./dependencias.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -44,7 +45,8 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const audit = abrirAuditoria(opts.dbPath);
   const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
   const coment = abrirComentarios(opts.dbPath);
-  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
+  const deps = abrirModuloDependencias(opts.dbPath, repo);
+  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id), ...deps.anexar(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -84,10 +86,12 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         const t = repo.obterTarefa(ma[1]);
         if (!t) return enviar(res, 404, { error: "Não encontrado" });
         if (!tr.de.includes(t.state)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
+        const bloqueio = deps.antes(t, ma[2]);
+        if (bloqueio) return enviar(res, bloqueio.status, bloqueio.corpo);
         const { motivo } = await lerJson(req);
-        repo.transicionar(t.id, {
-          autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: typeof motivo === "string" ? motivo : "",
-        });
+        const m = typeof motivo === "string" ? motivo : "";
+        repo.transicionar(t.id, { autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: m });
+        deps.depois(t, ma[2], rotuloAutor(autor), m);
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
       const ra = rotaAnexos(anexos, req, req.method ?? "GET", path, url.searchParams,
@@ -99,6 +103,8 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         res.writeHead(200, { ...CORS, "content-type": r.arquivo.tipo, "content-disposition": dispositionSegura(r.arquivo.nome), "content-length": r.arquivo.dados.length });
         return void res.end(r.arquivo.dados);
       }
+      const rd = await deps.rota(req.method ?? "GET", path, () => lerJson(req));
+      if (rd) return enviar(res, rd.status, rd.corpo);
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
       );
@@ -146,6 +152,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               audit.close();
               anexos.close();
               coment.close();
+              deps.close();
               r();
             });
             server.closeAllConnections();
