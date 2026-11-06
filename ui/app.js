@@ -1,3 +1,4 @@
+import { anexarDependencias } from "./dependencias.js";
 const API = new URLSearchParams(location.search).get("api") ?? "http://127.0.0.1:3000";
 const TOKEN_KEY = "atm-token";
 const _fetch = window.fetch.bind(window);
@@ -115,6 +116,18 @@ async function carregar() {
         b.addEventListener("click", () => agir(t.id, acao));
         li.append(b, " ");
       }
+      anexarDependencias(
+        li,
+        t,
+        (caminho, metodo, corpo) =>
+          fetch(`${API}${caminho}`, {
+            method: metodo,
+            headers: { "content-type": "application/json" },
+            body: corpo === undefined ? undefined : JSON.stringify(corpo),
+          }),
+        carregar,
+        (m) => (erro.textContent = m),
+      );
       return li;
     }),
   );

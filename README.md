@@ -38,3 +38,7 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Dependências brandas (RF5)
+
+`POST /tarefas/:id/dependencias {dependeDe}` (B depende de A; 400 para auto-dependência, ciclo ou duplicata), `DELETE /tarefas/:id/dependencias/:aId`. Cada Tarefa traz `dependeDe` e `dependenciasPendentes` (aviso: A ainda não está Aprovada). Com pendência, `iniciar` devolve 409; `POST /tarefas/:id/forcar-inicio` (só humano, 403 para agente) inicia mesmo assim e grava autor, horário e motivo em `tarefa_eventos`. Rejeitar ou reabrir A move cada dependente ativo (Autorizada, Explorando, Plano pronto) para "Aguardando humano" com o motivo no evento (`dependencia-rejeitada` / `dependencia-reaberta`).

@@ -5,6 +5,7 @@ import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirModuloDependencias } from "./dependencias.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -15,7 +16,7 @@ export interface Daemon {
 
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, PUT, PATCH, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "access-control-allow-headers": "content-type, authorization",
 };
 
@@ -38,7 +39,8 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
-  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
+  const deps = abrirModuloDependencias(opts.dbPath, repo);
+  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id), ...deps.anexar(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -75,12 +77,16 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         const t = repo.obterTarefa(ma[1]);
         if (!t) return enviar(res, 404, { error: "Não encontrado" });
         if (!tr.de.includes(t.state)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
+        const bloqueio = deps.antes(t, ma[2]);
+        if (bloqueio) return enviar(res, bloqueio.status, bloqueio.corpo);
         const { motivo } = await lerJson(req);
-        repo.transicionar(t.id, {
-          autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: typeof motivo === "string" ? motivo : "",
-        });
+        const m = typeof motivo === "string" ? motivo : "";
+        repo.transicionar(t.id, { autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: m });
+        deps.depois(t, ma[2], rotuloAutor(autor), m);
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
+      const rd = await deps.rota(req.method ?? "GET", path, () => lerJson(req));
+      if (rd) return enviar(res, rd.status, rd.corpo);
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
       );
@@ -126,6 +132,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              deps.close();
               r();
             });
             server.closeAllConnections();
