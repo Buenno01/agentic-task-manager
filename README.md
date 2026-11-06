@@ -42,3 +42,10 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Comentários e histórico
+
+- `POST /tarefas/:id/comentarios` `{texto, tipo?: comentario|pergunta|resposta, respondeA?}`: o autor vem do token. `resposta` exige `respondeA` apontando para uma `pergunta` da mesma Tarefa.
+- `GET /tarefas/:id/eventos`: histórico cronológico com comentários, transições e Aprovações (autor e horário em cada item).
+- Histórico imutável: PUT/PATCH/DELETE nessas rotas devolvem 405.
+- UI: botão "histórico" em cada Tarefa mostra a linha do tempo e o formulário de comentário.

@@ -40,6 +40,18 @@
     </select>
     <select id="filtro-ctx"></select>
     <ul id="lista"></ul>
+    <section id="historico" hidden>
+      <h2 id="historico-titulo"></h2>
+      <ul id="historico-linha"></ul>
+      <form id="comentario-form">
+        <select name="tipo"><option>comentario</option><option>pergunta</option><option>resposta</option></select>
+        <select name="respondeA"></select>
+        <input name="texto" placeholder="Comentário" required />
+        <button>Comentar</button>
+      </form>
+      <p id="historico-erro" role="alert"></p>
+    </section>
     <script type="module" src="app.js"></script>
+    <script type="module" src="historico.js"></script>
   </body>
 </html>

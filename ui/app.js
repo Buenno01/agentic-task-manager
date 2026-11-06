@@ -115,6 +115,11 @@ async function carregar() {
         b.addEventListener("click", () => agir(t.id, acao));
         li.append(b, " ");
       }
+      const h = document.createElement("button");
+      h.type = "button";
+      h.textContent = "histórico";
+      h.addEventListener("click", () => document.dispatchEvent(new CustomEvent("abrir-historico", { detail: { id: t.id, title: t.title } })));
+      li.append(h);
       return li;
     }),
   );
