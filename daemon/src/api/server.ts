@@ -5,6 +5,8 @@ import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirComentarios } from "../db/comentarios.ts";
+import { rotaHistorico } from "./historico.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -15,7 +17,7 @@ export interface Daemon {
 
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, PUT, PATCH, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "access-control-allow-headers": "content-type, authorization",
 };
 
@@ -38,6 +40,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
+  const coment = abrirComentarios(opts.dbPath);
   const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
@@ -62,10 +65,13 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         autor = a;
       }
       if (path === "/auditoria" && req.method === "GET") return enviar(res, 200, audit.listar());
-      const me = path.match(/^\/tarefas\/([^/]+)\/eventos$/);
-      if (me && req.method === "GET") {
-        if (!repo.obterTarefa(me[1])) return enviar(res, 404, { error: "Não encontrado" });
-        return enviar(res, 200, repo.listarEventos(me[1]));
+      const rh = rotaHistorico(
+        { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i) },
+        req.method ?? "GET", path, rotuloAutor(autor), () => lerJson(req),
+      );
+      if (rh) {
+        const r = await rh;
+        return enviar(res, r.status, r.corpo);
       }
       // Ciclo de vida da Exploração: guarda apenasHumano antes de qualquer outra checagem.
       const ma = path.match(/^\/tarefas\/([^/]+)\/([a-z-]+)$/);
@@ -126,6 +132,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              coment.close();
               r();
             });
             server.closeAllConnections();

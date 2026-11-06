@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type { Tarefa } from "../domain/tarefa.ts";
+import { agora } from "../domain/historico.ts";
 
 /** Histórico de uma Tarefa (ticket 05 estende com comentários etc.). Nunca é apagado. */
 export interface EventoTarefa {
@@ -68,7 +69,7 @@ export function abrirBanco(path: string): Repositorio {
       db.exec("BEGIN");
       try {
         upd.run(e.para, id);
-        insEv.run(id, new Date().toISOString(), e.autor, e.tipo, e.de, e.para, e.motivo);
+        insEv.run(id, agora(), e.autor, e.tipo, e.de, e.para, e.motivo);
         db.exec("COMMIT");
       } catch (err) {
         db.exec("ROLLBACK");
