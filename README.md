@@ -65,3 +65,13 @@ Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HT
 ## Contexto consolidado versionado (RF12)
 
 API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca do ticket 13.
+
+## Fase Execução e mudança material (RF2, RF4, RF6, RF17)
+
+Dados da Execução ficam na tabela lateral `tarefa_execucao` (objetivo, repositório principal, critérios, entregáveis, permissões, `puladaExploracao`). Só o humano cria/move na Execução (agente recebe 403).
+
+- `POST /tarefas` com `"phase": "Execução"` + `objetivo`, `repositorioPrincipal`, `criterios[]` (humano; evento `criar-execucao` registra que a Exploração foi pulada).
+- `POST /tarefas/:id/converter-execucao` (mesmo corpo): mantém o histórico e grava o evento `converter-execucao` (motivo indica se a Exploração foi pulada). Não vale para Rejeitado.
+- Estados: `iniciar-execucao` (Na fila→Em execução), `aguardar-humano-execucao`, `retomar-execucao`, `validar-execucao` (→Em validação), `concluir-execucao` (→Concluído).
+- `GET|PATCH /tarefas/:id/execucao`: editar repositório principal, critérios, entregáveis ou permissões (valor diferente) de plano Aprovado ou de Tarefa em Execução devolve-a a Exploração · "Plano pronto para aprovação" (evento `mudanca-material`); exige nova Aprovação.
+

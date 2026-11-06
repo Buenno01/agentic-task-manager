@@ -104,6 +104,28 @@ function avisoSobreposicao(li, t) {
   }
 }
 
+// Fase Execução (ticket 08): ações humanas por estado, e conversão com o contrato mínimo.
+const ACOES_EXECUCAO = {
+  "Na fila": ["iniciar-execucao"],
+  "Em execução": ["aguardar-humano-execucao", "validar-execucao"],
+  "Aguardando humano": ["retomar-execucao"],
+  "Em validação": ["concluir-execucao"],
+};
+async function converter(id) {
+  erro.textContent = "";
+  const objetivo = prompt("Objetivo:");
+  const repositorioPrincipal = prompt("Repositório principal:");
+  const criterios = (prompt("Critérios de aceitação (separados por ;):") ?? "").split(";").map((s) => s.trim()).filter(Boolean);
+  if (!objetivo || !repositorioPrincipal) return;
+  const res = await fetch(`${API}/tarefas/${id}/converter-execucao`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ objetivo, repositorioPrincipal, criterios }),
+  });
+  if (!res.ok) erro.textContent = (await res.json()).error;
+  await carregar();
+}
+
 async function agir(id, acao) {
   erro.textContent = "";
   const motivo = prompt(`Motivo para ${acao} (opcional):`) ?? "";
@@ -147,11 +169,12 @@ async function carregar() {
       });
       li.append(sel, " ");
       avisoSobreposicao(li, t);
-      for (const acao of ACOES[t.state] ?? []) {
+      const acoes = t.phase === "Execução" ? ACOES_EXECUCAO[t.state] ?? [] : [...(ACOES[t.state] ?? []), ...(t.state === "Rejeitado" ? [] : ["converter-execucao"])];
+      for (const acao of acoes) {
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = acao;
-        b.addEventListener("click", () => agir(t.id, acao));
+        b.addEventListener("click", () => (acao === "converter-execucao" ? converter(t.id) : agir(t.id, acao)));
         li.append(b, " ");
       }
       const h = document.createElement("button");

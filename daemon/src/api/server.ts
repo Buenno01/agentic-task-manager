@@ -18,6 +18,8 @@ import { rotaConsolidado } from "./consolidado.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { abrirArea } from "../db/area.ts";
 import { criarArea } from "./area.ts";
+import { abrirExecucao } from "../db/execucao.ts";
+import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -50,6 +52,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
+  const exec = abrirExecucao(opts.dbPath);
   const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
   const coment = abrirComentarios(opts.dbPath);
   const deps = abrirModuloDependencias(opts.dbPath, repo);
@@ -102,7 +105,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         if (tr.apenasHumano && !apenasHumano(autor)) return enviar(res, 403, { error: "Apenas o humano pode fazer isso" });
         const t = repo.obterTarefa(ma[1]);
         if (!t) return enviar(res, 404, { error: "Não encontrado" });
-        if (!tr.de.includes(t.state)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
+        if (t.phase !== "Exploração" || !tr.de.includes(t.state as never)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
         const bloqueio = deps.antes(t, ma[2]);
         if (bloqueio) return enviar(res, bloqueio.status, bloqueio.corpo);
         const { motivo } = await lerJson(req);
@@ -110,6 +113,11 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         repo.transicionar(t.id, { autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: m });
         deps.depois(t, ma[2], rotuloAutor(autor), m);
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
+      }
+      const rx = rotaExecucao({ repo, store: exec, autor, metodo: req.method ?? "GET", path, corpo: () => lerJson(req) });
+      if (rx) {
+        const r = await rx;
+        return enviar(res, r.status, r.corpo);
       }
       const ra = rotaAnexos(anexos, req, req.method ?? "GET", path, url.searchParams,
         (tipo, id) => (tipo === "tarefa" ? ctx.tarefaExiste(id) : !!ctx.obter(id)), opts.anexoMaxBytes ?? LIMITE_ANEXO_PADRAO);
@@ -149,8 +157,10 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         const contextId = entrada.contextId ?? null;
         if (contextId !== null && (typeof contextId !== "string" || !ctx.obter(contextId)))
           throw new ErroValidacao("Contexto não existe");
-        const tarefa = novaTarefa(entrada);
-        repo.inserirTarefa(tarefa);
+        const naExecucao = entrada.phase === "Execução";
+        if (naExecucao && !apenasHumano(autor)) return enviar(res, 403, { error: "Apenas o humano pode criar na Execução" });
+        const tarefa = naExecucao ? criarDiretoNaExecucao(exec, autor, entrada) : novaTarefa(entrada);
+        if (!naExecucao) repo.inserirTarefa(tarefa);
         ctx.associarTarefa(tarefa.id, contextId);
         return enviar(res, 201, comContexto(tarefa));
       }
@@ -181,6 +191,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              exec.close();
               anexos.close();
               coment.close();
               deps.close();
