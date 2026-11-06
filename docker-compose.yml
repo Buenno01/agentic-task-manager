@@ -24,6 +24,29 @@ services:
       retries: 10
       start_period: 5s
 
+  # MCP para agentes: cliente fino da API do daemon. Usa só o token do agente (nunca o do humano).
+  # Streamable HTTP em http://127.0.0.1:${ATM_MCP_PORT:-3100}/mcp (bearer = ATM_AGENT_TOKEN).
+  # Alternativa stdio: docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp
+  mcp:
+    build: ./mcp
+    restart: unless-stopped
+    depends_on:
+      daemon:
+        condition: service_healthy
+    environment:
+      ATM_API_URL: http://daemon:3000
+      ATM_MCP_HOST: 0.0.0.0
+      ATM_MCP_PORT: "3100"
+      ATM_AGENT_TOKEN: ${ATM_AGENT_TOKEN:?defina ATM_AGENT_TOKEN no .env (o mesmo token de um agente em ATM_AGENT_TOKENS)}
+    ports:
+      - "127.0.0.1:${ATM_MCP_PORT:-3100}:3100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   ui:
     build: ./ui
     restart: unless-stopped

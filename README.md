@@ -91,3 +91,13 @@ Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas
 
 Índices: `tarefas_fts` e `comentarios_fts` (`daemon/src/db/busca.ts`) são mantidos por triggers SQLite nas tabelas `tarefas` e `tarefa_comentarios`; ao subir, o daemon indexa linhas pré-existentes (backfill), então bancos antigos funcionam sem migração manual. Consolidado e anexos reutilizam `consolidado_fts` e `anexos_fts`. A UI tem uma caixa de busca que respeita o filtro de Contexto da lista.
 
+
+## MCP para agentes (RF25)
+
+Pasta `mcp/`: cliente HTTP fino e independente da API do daemon (`ATM_API_URL`), sem regras de negócio: repassa chamadas e devolve os erros da API como `isError`. Usa **só o token do agente** (`ATM_AGENT_TOKEN`, um dos de `ATM_AGENT_TOKENS`; nunca logado). Por isso o agente não aprova, autoriza nem muda estado: a API devolve 403 e as Tarefas criadas ficam em Exploração · Novo.
+
+Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `buscar` (`/busca`), `comentar` (`/tarefas/:id/comentarios`), `criar_tarefa` e `criar_subtarefa` (`POST /tarefas`, esta com `parentId`), `ler_tarefa` (`/tarefas/:id` + `/eventos`). Não há ferramenta de aprovação, transição ou execução.
+
+- **HTTP (padrão):** Streamable HTTP em `http://127.0.0.1:3100/mcp` (`ATM_MCP_PORT`), publicado só em 127.0.0.1; dentro do Docker escuta em 0.0.0.0. Toda requisição precisa de `Authorization: Bearer <ATM_AGENT_TOKEN>`, senão 401. `GET /health` sem autenticação. O serviço `mcp` do `docker compose up` sobe depois do daemon saudável; sem `ATM_AGENT_TOKEN` no `.env` o compose recusa com mensagem clara.
+- **stdio:** `docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp`, ou localmente `ATM_API_URL=... ATM_AGENT_TOKEN=... node mcp/src/main.ts --stdio`.
+- Local sem Docker: `cd mcp && npm ci && npm start` (host `ATM_MCP_HOST`, padrão 127.0.0.1). Testes: `npm test` (sobe o daemon real) e `npm run typecheck`.
