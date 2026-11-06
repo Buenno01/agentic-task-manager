@@ -17,6 +17,10 @@ npm start          # API em http://127.0.0.1:3000 (ATM_PORT, ATM_DB_PATH=./data/
 cd ui && npm start # UI em http://127.0.0.1:5173 (?api=<url> para outra API)
 ```
 
+## Contextos (RF10)
+
+API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`, `GET /contextos/:id/resolvido` (herança resolvida), `GET /contextos/:id/tarefas[?subarvore=1]`, `PUT /tarefas/:id/contexto`; `POST /tarefas` aceita `contextId`. Config estruturada (`repository`, `testCommands`, `concurrencyLimit`): filho sobrescreve, `null` herda. `instructions`: somam do geral ao específico (último vence).
+
 ## Testes
 
 ```sh

@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { abrirBanco } from "../db/index.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
+import { abrirContextos } from "../db/contextos.ts";
+import { rotaContextos } from "./contextos.ts";
 
 export interface Daemon {
   url: string;
@@ -10,7 +12,7 @@ export interface Daemon {
 
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PUT, PATCH, OPTIONS",
   "access-control-allow-headers": "content-type",
 };
 
@@ -31,15 +33,39 @@ async function lerJson(req: IncomingMessage): Promise<Record<string, unknown>> {
 
 export function startDaemon(opts: { dbPath: string; port: number; host?: string }): Promise<Daemon> {
   const repo = abrirBanco(opts.dbPath);
+  const ctx = abrirContextos(opts.dbPath);
+  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
     try {
-      const path = new URL(req.url ?? "/", "http://x").pathname;
+      const url = new URL(req.url ?? "/", "http://x");
+      const path = url.pathname;
       if (req.method === "OPTIONS") return enviar(res, 204);
-      if (path === "/tarefas" && req.method === "GET") return enviar(res, 200, repo.listarTarefas());
+      const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
+        repo.listarTarefas().map(comContexto),
+      );
+      if (rc) {
+        const r = await rc;
+        return enviar(res, r.status, r.corpo);
+      }
+      if (path === "/tarefas" && req.method === "GET") return enviar(res, 200, repo.listarTarefas().map(comContexto));
       if (path === "/tarefas" && req.method === "POST") {
-        const tarefa = novaTarefa(await lerJson(req));
+        const entrada = await lerJson(req);
+        const contextId = entrada.contextId ?? null;
+        if (contextId !== null && (typeof contextId !== "string" || !ctx.obter(contextId)))
+          throw new ErroValidacao("Contexto não existe");
+        const tarefa = novaTarefa(entrada);
         repo.inserirTarefa(tarefa);
-        return enviar(res, 201, tarefa);
+        ctx.associarTarefa(tarefa.id, contextId);
+        return enviar(res, 201, comContexto(tarefa));
+      }
+      const mt = path.match(/^\/tarefas\/([^/]+)\/contexto$/);
+      if (mt && req.method === "PUT") {
+        if (!ctx.tarefaExiste(mt[1])) return enviar(res, 404, { error: "Não encontrado" });
+        const { contextId = null } = await lerJson(req);
+        if (contextId !== null && (typeof contextId !== "string" || !ctx.obter(contextId)))
+          throw new ErroValidacao("Contexto não existe");
+        ctx.associarTarefa(mt[1], contextId);
+        return enviar(res, 200, { id: mt[1], contextId });
       }
       enviar(res, 404, { error: "Não encontrado" });
     } catch (e) {
@@ -57,6 +83,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string 
           new Promise<void>((r) => {
             server.close(() => {
               repo.close();
+              ctx.close();
               r();
             });
             server.closeAllConnections();

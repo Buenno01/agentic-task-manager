@@ -5,10 +5,26 @@
     <title>Agentic Task Manager</title>
   </head>
   <body>
+    <h1>Contextos</h1>
+    <form id="novo-contexto">
+      <input name="name" placeholder="Nome" required />
+      <select name="kind">
+        <option>cliente</option><option>projeto</option><option>repositorio</option><option>loja</option><option>ambiente</option>
+      </select>
+      <select name="parentId" id="pai"></select>
+      <input name="repository" placeholder="Repositório" />
+      <input name="testCommands" placeholder="Comandos de teste (um por linha: separe por ;)" />
+      <input name="concurrencyLimit" type="number" min="1" placeholder="Limite de concorrência" />
+      <input name="instructions" placeholder="Instruções" />
+      <button>Criar Contexto</button>
+    </form>
+    <ul id="arvore"></ul>
+    <pre id="resolvido"></pre>
     <h1>Tarefas</h1>
     <form id="nova">
       <input name="title" placeholder="Título" required />
       <input name="description" placeholder="Descrição" />
+      <select name="contextId" id="ctx-tarefa"></select>
       <button>Criar Tarefa</button>
     </form>
     <p id="erro" role="alert"></p>
