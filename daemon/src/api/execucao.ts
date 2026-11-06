@@ -16,6 +16,8 @@ export interface DepsExecucao {
   metodo: string;
   path: string;
   corpo: () => Promise<Record<string, unknown>>;
+  /** Guarda de dependências brandas (RF5), aplicada antes de iniciar/converter. */
+  antes?: (t: Tarefa, acao: string) => Resposta | undefined;
 }
 
 /** Criação direta na Execução (RF2): só o humano; exige o contrato mínimo; registra a Exploração pulada. */
@@ -43,6 +45,8 @@ export function rotaExecucao(d: DepsExecucao): Promise<Resposta> | undefined {
       if (!t) return NAO_ENCONTRADO;
       if (t.phase !== "Exploração" || t.state === "Rejeitado")
         return { status: 409, corpo: { error: `Não é possível converter: ${t.phase} · ${t.state}` } };
+      const bloqueio = d.antes?.(t, "converter-execucao");
+      if (bloqueio) return bloqueio;
       const dados = contratoDeExecucao(await d.corpo(), t.state !== "Aprovado");
       const motivo =
         t.state === "Aprovado" ? "Exploração concluída; plano aprovado convertido" : `${MOTIVO_PULOU} (estava em ${t.state})`;
@@ -59,6 +63,8 @@ export function rotaExecucao(d: DepsExecucao): Promise<Resposta> | undefined {
       if (!t) return NAO_ENCONTRADO;
       if (t.phase !== "Execução" || !tr.de.includes(t.state))
         return { status: 409, corpo: { error: `Transição inválida: ${t.state} → ${tr.para}` } };
+      const bloqueio = d.antes?.(t, nome);
+      if (bloqueio) return bloqueio;
       const { motivo } = await d.corpo();
       d.repo.transicionar(id, { autor, tipo: nome, de: t.state, para: tr.para, motivo: typeof motivo === "string" ? motivo : "" });
       return { status: 200, corpo: { ...t, state: tr.para } };

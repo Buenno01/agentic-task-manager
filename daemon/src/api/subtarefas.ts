@@ -31,7 +31,10 @@ export function abrirModuloSubtarefas(dbPath: string, repo: Repositorio) {
         if (!apenasHumano(autor)) return { erro: { status: 403, corpo: { error: "Agente não cria na Execução" } } };
         throw new ErroValidacao("Subtarefa nasce na Exploração, em Novo");
       }
-      if (!repo.obterTarefa(entrada.parentId)) return { erro: { status: 404, corpo: { error: "Tarefa-mãe não existe" } } };
+      const mae = repo.obterTarefa(entrada.parentId);
+      if (!mae) return { erro: { status: 404, corpo: { error: "Tarefa-mãe não existe" } } };
+      if (!apenasHumano(autor) && (mae.phase !== "Exploração" || mae.state === "Rejeitado"))
+        return { erro: { status: 409, corpo: { error: `Agente só cria Subtarefa sob mãe em Exploração e não Rejeitada (${mae.phase} · ${mae.state})` } } };
       return { maeId: entrada.parentId };
     },
 
@@ -71,7 +74,8 @@ export function abrirModuloSubtarefas(dbPath: string, repo: Repositorio) {
       if (e.description !== undefined && typeof e.description !== "string") throw new ErroValidacao("description deve ser texto");
       const description = (e.description as string | undefined) ?? t.description;
       store.editar(id, title, description);
-      registrar(t, rotuloAutor(autor), "editar", "Subtarefa editada");
+      registrar(t, rotuloAutor(autor), "editar",
+        `Subtarefa editada. Título: "${t.title}" → "${title}". Descrição: "${t.description}" → "${description}"`);
       return { status: 200, corpo: { ...t, title, description } };
     },
 

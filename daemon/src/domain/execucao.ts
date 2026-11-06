@@ -30,6 +30,8 @@ interface TransicaoExecucao {
 /** Ciclo da Execução (spec seção 5), movido manualmente pelo humano nesta etapa. */
 export const TRANSICOES_EXECUCAO: Record<string, TransicaoExecucao> = {
   "iniciar-execucao": { de: ["Na fila"], para: "Em execução" },
+  /** Dependências brandas (RF5): ignora dependência pendente; só o humano, e é registrado. */
+  "forcar-inicio": { de: ["Na fila"], para: "Em execução" },
   "aguardar-humano-execucao": { de: ["Em execução"], para: "Aguardando humano" },
   "retomar-execucao": { de: ["Aguardando humano"], para: "Em execução" },
   "validar-execucao": { de: ["Em execução"], para: "Em validação" },
