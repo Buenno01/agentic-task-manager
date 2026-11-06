@@ -38,3 +38,7 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Área prevista e sobreposição (RF18)
+
+`PUT /tarefas/:id/area-prevista` com `{"paths": ["src/api", "ui/*.js"]}` registra a Área prevista do plano (caminhos, diretórios ou globs `*`, `?`, `**`; vira evento no histórico; recusado após Aprovado/Rejeitado). `GET /tarefas` e as respostas das ações devolvem `intendedArea` e `overlapWarnings` (outras Tarefas abertas, isto é, não Rejeitadas, do mesmo repositório resolvido pelo Contexto, com Área sobreposta); `GET /tarefas/:id/sobreposicao` devolve só os avisos. O aviso nunca bloqueia: aprovar continua possível. A UI mostra o aviso na lista, antes dos botões de Aprovação.

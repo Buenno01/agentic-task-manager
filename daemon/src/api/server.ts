@@ -6,6 +6,8 @@ import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
+import { abrirArea } from "../db/area.ts";
+import { criarArea } from "./area.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -38,7 +40,9 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
-  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
+  const areaDb = abrirArea(opts.dbPath);
+  const area = criarArea(repo, ctx, areaDb);
+  const comContexto = <T extends { id: string }>(t: T) => area.decorar({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -81,6 +85,8 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         });
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
+      const ra = await area.rota(req.method ?? "GET", path, () => lerJson(req), rotuloAutor(autor));
+      if (ra) return enviar(res, ra.status, ra.corpo);
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
       );
@@ -126,6 +132,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              areaDb.close();
               r();
             });
             server.closeAllConnections();
