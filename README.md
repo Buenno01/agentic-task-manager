@@ -1,0 +1,112 @@
+# Agentic Task Manager
+
+Ver `GLOSSARY.md`, `docs/adr/` e `.scratch/nucleo/spec.md`.
+
+## Estrutura
+
+- `daemon/` — daemon TypeScript/Node + SQLite + API HTTP (ADR-0005, ADR-0007). Módulos: `src/api` (HTTP), `src/db` (SQLite), `src/domain` (regras).
+- `ui/` — SPA mínima, projeto independente; fala só com a API.
+
+## Rodar
+
+Requer Node >= 24 (usa `node:sqlite` e execução de TypeScript nativa).
+
+```sh
+cd daemon && npm install
+npm start          # API em http://127.0.0.1:3000 (ATM_PORT, ATM_DB_PATH=./data/atm.db)
+cd ui && npm start # UI em http://127.0.0.1:5173 (?api=<url> para outra API)
+```
+
+## Docker Compose
+
+```sh
+cp .env.example .env     # defina ATM_HUMAN_TOKEN (obrigatório); portas opcionais
+docker compose up -d --build --wait   # API em http://127.0.0.1:3000, UI em http://127.0.0.1:5173
+docker compose down                   # para (os dados ficam)
+```
+
+Dados em volumes nomeados: `atm-db` (SQLite, `/data/db`), `atm-attachments` (anexos, `ATM_ATTACHMENTS_DIR=/data/attachments`) e `atm-logs` (**reservado** para os logs das Rodadas da fase 2; o daemon hoje só escreve no stdout e não grava nada ali). Sobrevivem a `down`/`up`; `docker compose down -v` os apaga. Portas só em `127.0.0.1`. `ATM_HUMAN_TOKEN` é obrigatório (o compose recusa subir sem ele); `ATM_AGENT_TOKENS` (`id:token,...`) é opcional. Todas as rotas exigem `Authorization: Bearer <token>`, exceto `GET /health` (healthcheck, sem token). Na UI, informe o token no formulário "Salvar token": ele fica no `localStorage` do navegador e é enviado como `Authorization: Bearer` em cada requisição (nunca é embutido no código). Healthcheck da API em `GET /health`; a UI só sobe com a API saudável. Configuração por variáveis (`.env`, ver `.env.example`); nunca commite segredos.
+
+## Contextos (RF10)
+
+API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`, `GET /contextos/:id/resolvido` (herança resolvida), `GET /contextos/:id/tarefas[?subarvore=1]`, `PUT /tarefas/:id/contexto`; `POST /tarefas` aceita `contextId`. **Só o humano** cria/edita Contextos (`POST /contextos`, `PATCH /contextos/:id`) e reatribui Tarefa a Contexto (`PUT /tarefas/:id/contexto`): agente recebe 403 (os `GET` ficam abertos a agentes). Config estruturada (`repository`, `testCommands`, `concurrencyLimit`): filho sobrescreve, `null` herda. `instructions`: somam do geral ao específico (último vence).
+
+## Anexos (RF13)
+
+`POST /tarefas/:id/anexos?nome=x.pdf` e `POST /contextos/:id/anexos?nome=x.pdf` (corpo = bytes do arquivo, `Content-Type` vira o tipo; limite 25 MiB, 413 acima), `GET /{tarefas,contextos}/:id/anexos`, `GET /anexos/:id` (download), `GET /anexos/:id/texto` (texto extraído; 404 se não houver). Arquivos ficam em `ATM_ATTACHMENTS_DIR` (padrão `./data/attachments`) sob id gerado; o nome enviado é sanitizado. Texto é extraído de `.txt`, `.md`, `.docx` e `.pdf` e indexado em FTS5 (`anexos_fts`; `abrirAnexos().buscar()` para o ticket 13). Imagens e planilhas só ficam como arquivo. Limitação: PDF é melhor esforço (operadores Tj/TJ em streams Flate/sem filtro); fontes com codificação própria (CID/Identity-H), PDFs escaneados ou criptografados rendem texto vazio/parcial; `.docx` lê só o corpo (`word/document.xml`).
+
+## Testes
+
+```sh
+cd daemon && npm test && npm run typecheck
+```
+
+Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Comentários e histórico
+
+- `POST /tarefas/:id/comentarios` `{texto, tipo?: comentario|pergunta|resposta, respondeA?}`: o autor vem do token. `resposta` exige `respondeA` apontando para uma `pergunta` da mesma Tarefa.
+- `GET /tarefas/:id/eventos`: histórico cronológico com comentários, transições e Aprovações (autor e horário em cada item).
+- Histórico imutável: PUT/PATCH/DELETE nessas rotas devolvem 405.
+- UI: botão "histórico" em cada Tarefa mostra a linha do tempo e o formulário de comentário.
+
+## Dependências brandas (RF5)
+
+`POST /tarefas/:id/dependencias {dependeDe}` (B depende de A; 400 para auto-dependência, ciclo ou duplicata), `DELETE /tarefas/:id/dependencias/:aId`. Cada Tarefa traz `dependeDe` e `dependenciasPendentes` (aviso: A ainda não está Aprovada). Com pendência, `iniciar`, `iniciar-execucao` e `converter-execucao` devolvem 409; `POST /tarefas/:id/forcar-inicio` (só humano, 403 para agente; vale para Autorizada → Explorando e Na fila → Em execução) inicia mesmo assim e grava autor, horário e motivo em `tarefa_eventos`. A dependência está satisfeita quando A está Aprovada ou já seguiu para a Execução (Na fila, Em execução, Em validação, Concluído). Rejeitar ou reabrir A move cada dependente ativo (Autorizada, Explorando, Plano pronto, Na fila, Em execução, Em validação) para "Aguardando humano" com o motivo no evento (`dependencia-rejeitada` / `dependencia-reaberta`). **Declarar** dependência é permitido ao agente (faz parte do planejamento); **remover** (`DELETE`) é só do humano.
+
+## Prioridade (RF8)
+
+`PUT /tarefas/:id/prioridade` com `{nivel: baixa|média|alta|urgente, impacto, urgencia, esforco}`. O agente sugere (justificativa obrigatória); o humano altera sem exigir justificativa. Sugestão de agente nunca sobrescreve valor definido pelo humano (409). Cada Tarefa traz `priority` (nível, justificativa, origem, autor); sem definição vale `média`. `GET /tarefas` (e a lista da UI) ordena por prioridade e depois por chegada. Terminologia: ver Prioridade em `GLOSSARY.md`.
+
+## Área prevista e sobreposição (RF18)
+
+`PUT /tarefas/:id/area-prevista` com `{"paths": ["src/api", "ui/*.js"]}` registra a Área prevista do plano (caminhos, diretórios ou globs `*`, `?`, `**`; vira evento no histórico; recusado após Aprovado/Rejeitado). `GET /tarefas` e as respostas das ações devolvem `intendedArea` e `overlapWarnings` (outras Tarefas abertas, isto é, não Rejeitadas, do mesmo repositório resolvido pelo Contexto, com Área sobreposta); `GET /tarefas/:id/sobreposicao` devolve só os avisos. O aviso nunca bloqueia: aprovar continua possível. A UI mostra o aviso na lista, antes dos botões de Aprovação.
+
+## Contexto consolidado versionado (RF12)
+
+API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca do ticket 13.
+
+## Fase Execução e mudança material (RF2, RF4, RF6, RF17)
+
+Dados da Execução ficam na tabela lateral `tarefa_execucao` (objetivo, repositório principal, critérios, entregáveis, permissões, `puladaExploracao`). Só o humano cria/move na Execução (agente recebe 403).
+
+- `POST /tarefas` com `"phase": "Execução"` + `objetivo`, `repositorioPrincipal`, `criterios[]` (humano; evento `criar-execucao` registra que a Exploração foi pulada).
+- `POST /tarefas/:id/converter-execucao` (mesmo corpo): mantém o histórico e grava o evento `converter-execucao` (motivo indica se a Exploração foi pulada). Não vale para Rejeitado.
+- Estados: `iniciar-execucao` (Na fila→Em execução), `aguardar-humano-execucao`, `retomar-execucao`, `validar-execucao` (→Em validação), `concluir-execucao` (→Concluído).
+- `GET|PATCH /tarefas/:id/execucao`: editar repositório principal, critérios, entregáveis ou permissões (valor diferente) de plano Aprovado ou de Tarefa em Execução devolve-a a Exploração · "Plano pronto para aprovação" (evento `mudanca-material`); exige nova Aprovação.
+
+## Subtarefas (RF2, RF3)
+
+Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas.ts`; lógica em `src/api/subtarefas.ts` e `src/domain/subtarefas.ts`).
+
+- `POST /tarefas` com `parentId`: cria Subtarefa sempre em Exploração · Novo (agente ou humano). Agente com `phase: "Execução"` recebe 403; mãe inexistente, 404. Cria o evento `subtarefa-criada` na mãe.
+- `PATCH /tarefas/:id` `{title?, description?}`: só humano, só Subtarefa (evento `editar`).
+- `POST /tarefas/:id/aprovar-subtarefa` (humano; Subtarefa em Novo → Aprovado) ou `rejeitar`/`reabrir`. A aprovada segue sozinha (ex.: `converter-execucao`), sem esperar a mãe.
+- Ajuste por comentário: `POST /tarefas/:id/comentarios` na Subtarefa ou na mãe (ticket 05).
+- `GET /tarefas/:id` (e `GET /tarefas`) devolvem `maeId`, `subtarefas[{id,title,state,decisao}]` e `resolucaoSubtarefas {total,aprovadas,rejeitadas,resolvida}`. Quando a última Subtarefa é aprovada/rejeitada grava o evento `mae-resolvida` na mãe; reabrir desfaz a resolução.
+
+## Busca textual (RF11)
+
+`GET /busca?q=<texto>[&contexto=<id>[&subarvore=1]]` (autenticação como nas demais rotas; `q` vazio ou sem letras/números → 400; `contexto` inexistente → 400). Devolve uma lista unificada de `{tipo, id, snippet, taskId, contextId[, version]}` com `tipo` ∈ `tarefa` (título+descrição), `comentario`, `consolidado` (qualquer versão; `id` = Contexto, `version` = versão que casou) e `anexo` (texto extraído; `taskId` null se o anexo é de um Contexto). O `snippet` marca os termos entre `[colchetes]`. Busca insensível a acentos e caixa (FTS5 `unicode61 remove_diacritics 2`); todas as palavras devem casar (AND) e operadores FTS na consulta (`"`, `*`, `OR`, `NEAR`, `:`) são tratados como texto literal. Com `contexto`, só resultados daquele Contexto; com `subarvore=1`, também dos descendentes. Resultados sem Contexto só aparecem sem filtro. Limite de 100 por tipo.
+
+Índices: `tarefas_fts` e `comentarios_fts` (`daemon/src/db/busca.ts`) são mantidos por triggers SQLite nas tabelas `tarefas` e `tarefa_comentarios`; ao subir, o daemon indexa linhas pré-existentes (backfill), então bancos antigos funcionam sem migração manual. Consolidado e anexos reutilizam `consolidado_fts` e `anexos_fts`. A UI tem uma caixa de busca que respeita o filtro de Contexto da lista.
+
+
+## MCP para agentes (RF25)
+
+Pasta `mcp/`: cliente HTTP fino e independente da API do daemon (`ATM_API_URL`), sem regras de negócio: repassa chamadas e devolve os erros da API como `isError`. Usa **só o token do agente** (`ATM_AGENT_TOKEN`, um dos de `ATM_AGENT_TOKENS`; nunca logado). Por isso o agente não aprova, autoriza nem muda estado: a API devolve 403 e as Tarefas criadas ficam em Exploração · Novo.
+
+Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `buscar` (`/busca`), `comentar` (`/tarefas/:id/comentarios`), `criar_tarefa` e `criar_subtarefa` (`POST /tarefas`, esta com `parentId`), `ler_tarefa` (`/tarefas/:id` + `/eventos`). Não há ferramenta de aprovação, transição ou execução.
+
+- **HTTP (padrão):** Streamable HTTP em `http://127.0.0.1:3100/mcp` (`ATM_MCP_PORT`), publicado só em 127.0.0.1; dentro do Docker escuta em 0.0.0.0. Toda requisição precisa de `Authorization: Bearer <ATM_AGENT_TOKEN>`, senão 401. `GET /health` sem autenticação. O serviço `mcp` do `docker compose up` sobe depois do daemon saudável; sem `ATM_AGENT_TOKEN` no `.env` o compose recusa com mensagem clara.
+- **stdio:** `docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp`, ou localmente `ATM_API_URL=... ATM_AGENT_TOKEN=... node mcp/src/main.ts --stdio`.
+- Local sem Docker: `cd mcp && npm ci && npm start` (host `ATM_MCP_HOST`, padrão 127.0.0.1). Testes: `npm test` (sobe o daemon real) e `npm run typecheck`.
+
+## Segurança e limites
+
+- **Tokens:** o daemon recusa iniciar sem `ATM_HUMAN_TOKEN`, e recusa tokens (humano ou de agente) que comecem com `troque-por` (valor de exemplo do `.env.example`) ou tenham menos de 16 caracteres. `startDaemon` exige `credenciais` (não existe modo "sem autenticação"). `ATM_AGENT_TOKEN` (usado pelo serviço `mcp`) **deve ser igual** ao token de um agente em `ATM_AGENT_TOKENS`; o compose não o deriva sozinho.
+- **`.env` como fallback:** se `ATM_HUMAN_TOKEN` não vier do ambiente, o daemon lê `./.env`. Isso é só para desenvolvimento local sem Docker (ADR-0007); no Compose use variáveis de ambiente.
+- **CORS:** só as origens em `ATM_CORS_ORIGIN` (vírgula; padrão `http://127.0.0.1:5173,http://localhost:5173`) recebem `Access-Control-Allow-Origin`; nunca `*`.
+- **Limites:** corpo JSON até 1 MiB e upload até 25 MiB; acima disso, 413 imediato. Downloads de anexos saem com `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment` e `application/octet-stream` exceto png/jpeg/gif/webp/pdf/txt.
+- **Auditoria:** `/health` e `OPTIONS` não são auditados; requisições sem token válido são registradas como `anonimo` (401).
+- **FTS5** do SQLite é obrigatório (a abertura falha com erro claro sem ele).
