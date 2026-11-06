@@ -5,6 +5,8 @@ import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirAnexos } from "../db/anexos.ts";
+import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos } from "./anexos.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { abrirExecucao } from "../db/execucao.ts";
 import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
@@ -36,11 +38,12 @@ async function lerJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   throw new ErroValidacao("Corpo da requisição inválido");
 }
 
-export function startDaemon(opts: { dbPath: string; port: number; host?: string; credenciais?: Credenciais }): Promise<Daemon> {
+export function startDaemon(opts: { dbPath: string; port: number; host?: string; credenciais?: Credenciais; anexosDir?: string; anexoMaxBytes?: number }): Promise<Daemon> {
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
   const exec = abrirExecucao(opts.dbPath);
+  const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
   const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
@@ -88,6 +91,15 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       if (rx) {
         const r = await rx;
         return enviar(res, r.status, r.corpo);
+      }
+      const ra = rotaAnexos(anexos, req, req.method ?? "GET", path, url.searchParams,
+        (tipo, id) => (tipo === "tarefa" ? ctx.tarefaExiste(id) : !!ctx.obter(id)), opts.anexoMaxBytes ?? LIMITE_ANEXO_PADRAO);
+      if (ra) {
+        const r = await ra;
+        if (!r.arquivo) return enviar(res, r.status, r.corpo);
+        audit.registrar(rotuloAutor(autor), req.method ?? "GET", path, r.status);
+        res.writeHead(200, { ...CORS, "content-type": r.arquivo.tipo, "content-disposition": dispositionSegura(r.arquivo.nome), "content-length": r.arquivo.dados.length });
+        return void res.end(r.arquivo.dados);
       }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
@@ -137,6 +149,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               ctx.close();
               audit.close();
               exec.close();
+              anexos.close();
               r();
             });
             server.closeAllConnections();
