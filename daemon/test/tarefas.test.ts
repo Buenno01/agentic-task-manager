@@ -24,6 +24,12 @@ const post = (path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+test("GET /health responde ok", async () => {
+  const res = await fetch(daemon.url + "/health");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { status: "ok" });
+});
+
 test("criar Tarefa nasce na Exploração, estado Novo", async () => {
   const res = await post("/tarefas", { title: "Revisar preços", description: "Comparar com concorrente" });
   assert.equal(res.status, 201);

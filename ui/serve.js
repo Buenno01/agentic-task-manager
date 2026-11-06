@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 
 const tipos = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 const raiz = new URL(".", import.meta.url).pathname;
+const host = process.env.UI_HOST ?? "127.0.0.1";
 const porta = Number(process.env.UI_PORT ?? 5173);
 
 createServer(async (req, res) => {
@@ -18,4 +19,4 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end();
   }
-}).listen(porta, "127.0.0.1", () => console.log(`UI em http://127.0.0.1:${porta}`));
+}).listen(porta, host, () => console.log(`UI em http://${host}:${porta}`));

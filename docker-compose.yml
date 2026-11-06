@@ -1,0 +1,44 @@
+name: agentic-task-manager
+
+services:
+  daemon:
+    build: ./daemon
+    restart: unless-stopped
+    environment:
+      ATM_HOST: 0.0.0.0
+      ATM_PORT: "3000"
+      ATM_DB_PATH: /data/db/atm.db
+    ports:
+      - "127.0.0.1:${ATM_PORT:-3000}:3000"
+    volumes:
+      - atm-db:/data/db
+      - atm-attachments:/data/attachments
+      - atm-logs:/data/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  ui:
+    build: ./ui
+    restart: unless-stopped
+    depends_on:
+      daemon:
+        condition: service_healthy
+    environment:
+      UI_HOST: 0.0.0.0
+      UI_PORT: "5173"
+    ports:
+      - "127.0.0.1:${UI_PORT:-5173}:5173"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  atm-db:
+  atm-attachments:
+  atm-logs:

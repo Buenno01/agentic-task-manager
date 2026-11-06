@@ -40,6 +40,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string 
       const url = new URL(req.url ?? "/", "http://x");
       const path = url.pathname;
       if (req.method === "OPTIONS") return enviar(res, 204);
+      if (path === "/health" && req.method === "GET") return enviar(res, 200, { status: "ok" });
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
       );
