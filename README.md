@@ -38,3 +38,7 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Contexto consolidado versionado (RF12)
+
+API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca do ticket 13.

@@ -5,6 +5,8 @@ import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirConsolidado } from "../db/consolidado.ts";
+import { rotaConsolidado } from "./consolidado.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -38,6 +40,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
+  const cons = abrirConsolidado(opts.dbPath);
   const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
@@ -80,6 +83,11 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
           autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: typeof motivo === "string" ? motivo : "",
         });
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
+      }
+      const rcons = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), rotuloAutor(autor), req.method ?? "GET", path, () => lerJson(req));
+      if (rcons) {
+        const r = await rcons;
+        return enviar(res, r.status, r.corpo);
       }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),
@@ -126,6 +134,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              cons.close();
               r();
             });
             server.closeAllConnections();
