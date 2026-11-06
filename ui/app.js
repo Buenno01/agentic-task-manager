@@ -76,6 +76,34 @@ const ACOES = {
 };
 let soAguardando = false;
 
+// Área prevista (RF18): aviso de sobreposição antes da Aprovação (não bloqueia) e edição da Área.
+function avisoSobreposicao(li, t) {
+  if (t.intendedArea?.length) li.append(`Área prevista: ${t.intendedArea.join(", ")} `);
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = "área prevista";
+  b.addEventListener("click", async () => {
+    const v = prompt("Área prevista (caminhos/globs separados por vírgula):", (t.intendedArea ?? []).join(", "));
+    if (v === null) return;
+    erro.textContent = "";
+    const res = await fetch(`${API}/tarefas/${t.id}/area-prevista`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: v.split(",").map((s) => s.trim()).filter(Boolean) }),
+    });
+    if (!res.ok) erro.textContent = (await res.json()).error;
+    await carregar();
+  });
+  li.append(b, " ");
+  for (const w of t.overlapWarnings ?? []) {
+    const aviso = document.createElement("strong");
+    aviso.setAttribute("role", "alert");
+    aviso.className = "aviso-sobreposicao";
+    aviso.textContent = `⚠ Sobreposição com "${w.title}" (${w.state}): ${w.overlaps.map((o) => `${o.mine} ↔ ${o.theirs}`).join("; ")}. Não bloqueia a Aprovação. `;
+    li.append(aviso);
+  }
+}
+
 async function agir(id, acao) {
   erro.textContent = "";
   const motivo = prompt(`Motivo para ${acao} (opcional):`) ?? "";
@@ -118,6 +146,7 @@ async function carregar() {
         await carregar();
       });
       li.append(sel, " ");
+      avisoSobreposicao(li, t);
       for (const acao of ACOES[t.state] ?? []) {
         const b = document.createElement("button");
         b.type = "button";

@@ -43,6 +43,7 @@ cd daemon && npm test && npm run typecheck
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
 
+
 ## Comentários e histórico
 
 - `POST /tarefas/:id/comentarios` `{texto, tipo?: comentario|pergunta|resposta, respondeA?}`: o autor vem do token. `resposta` exige `respondeA` apontando para uma `pergunta` da mesma Tarefa.
@@ -57,3 +58,7 @@ Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HT
 ## Prioridade (RF8)
 
 `PUT /tarefas/:id/prioridade` com `{nivel: baixa|média|alta|urgente, impacto, urgencia, esforco}`. O agente sugere (justificativa obrigatória); o humano altera sem exigir justificativa. Sugestão de agente nunca sobrescreve valor definido pelo humano (409). Cada Tarefa traz `priority` (nível, justificativa, origem, autor); sem definição vale `média`. `GET /tarefas` (e a lista da UI) ordena por prioridade e depois por chegada. Terminologia: ver Prioridade em `GLOSSARY.md`.
+
+## Área prevista e sobreposição (RF18)
+
+`PUT /tarefas/:id/area-prevista` com `{"paths": ["src/api", "ui/*.js"]}` registra a Área prevista do plano (caminhos, diretórios ou globs `*`, `?`, `**`; vira evento no histórico; recusado após Aprovado/Rejeitado). `GET /tarefas` e as respostas das ações devolvem `intendedArea` e `overlapWarnings` (outras Tarefas abertas, isto é, não Rejeitadas, do mesmo repositório resolvido pelo Contexto, com Área sobreposta); `GET /tarefas/:id/sobreposicao` devolve só os avisos. O aviso nunca bloqueia: aprovar continua possível. A UI mostra o aviso na lista, antes dos botões de Aprovação.
