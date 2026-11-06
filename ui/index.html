@@ -9,6 +9,14 @@
       <input name="token" type="password" placeholder="Token" autocomplete="off" />
       <button>Salvar token</button>
     </form>
+    <h1>Busca</h1>
+    <form id="busca-form">
+      <input name="q" placeholder="Buscar em Tarefas, comentários, consolidado e anexos" required />
+      <label><input name="subarvore" type="checkbox" /> incluir sub-Contextos</label>
+      <button>Buscar</button>
+    </form>
+    <p id="busca-erro" role="alert"></p>
+    <ul id="busca-resultados"></ul>
     <h1>Contextos</h1>
     <form id="novo-contexto">
       <input name="name" placeholder="Nome" required />
@@ -53,5 +61,6 @@
     </section>
     <script type="module" src="app.js"></script>
     <script type="module" src="historico.js"></script>
+    <script type="module" src="busca.js"></script>
   </body>
 </html>
