@@ -38,3 +38,7 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Prioridade (RF8)
+
+`PUT /tarefas/:id/prioridade` com `{nivel: baixa|média|alta|urgente, impacto, urgencia, esforco}`. O agente sugere (justificativa obrigatória); o humano altera sem exigir justificativa. Sugestão de agente nunca sobrescreve valor definido pelo humano (409). Cada Tarefa traz `priority` (nível, justificativa, origem, autor); sem definição vale `média`. `GET /tarefas` (e a lista da UI) ordena por prioridade e depois por chegada. Terminologia: ver Prioridade em `GLOSSARY.md`.

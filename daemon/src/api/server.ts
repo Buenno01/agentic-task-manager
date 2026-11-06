@@ -5,6 +5,9 @@ import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
+import { abrirPrioridades } from "../db/prioridade.ts";
+import { ordenarPorPrioridade } from "../domain/prioridade.ts";
+import { definirPrioridade } from "./prioridade.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -38,7 +41,12 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
   const repo = abrirBanco(opts.dbPath);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
-  const comContexto = <T extends { id: string }>(t: T) => ({ ...t, contextId: ctx.contextoDaTarefa(t.id) });
+  const prios = abrirPrioridades(opts.dbPath);
+  const comContexto = <T extends { id: string }>(t: T) => ({
+    ...t,
+    contextId: ctx.contextoDaTarefa(t.id),
+    priority: prios.obter(t.id),
+  });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -81,14 +89,21 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         });
         return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
+      const mp = path.match(/^\/tarefas\/([^/]+)\/prioridade$/);
+      if (mp && req.method === "PUT") {
+        if (!repo.obterTarefa(mp[1])) return enviar(res, 404, { error: "Não encontrado" });
+        const r = definirPrioridade(prios, mp[1], autor, await lerJson(req));
+        return enviar(res, r.status, r.corpo);
+      }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
-        repo.listarTarefas().map(comContexto),
+        ordenarPorPrioridade(repo.listarTarefas().map(comContexto)),
       );
       if (rc) {
         const r = await rc;
         return enviar(res, r.status, r.corpo);
       }
-      if (path === "/tarefas" && req.method === "GET") return enviar(res, 200, repo.listarTarefas().map(comContexto));
+      if (path === "/tarefas" && req.method === "GET")
+        return enviar(res, 200, ordenarPorPrioridade(repo.listarTarefas().map(comContexto)));
       if (path === "/tarefas" && req.method === "POST") {
         const entrada = await lerJson(req);
         const contextId = entrada.contextId ?? null;
@@ -126,6 +141,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               repo.close();
               ctx.close();
               audit.close();
+              prios.close();
               r();
             });
             server.closeAllConnections();
