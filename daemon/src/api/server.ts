@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { abrirBanco } from "../db/index.ts";
+import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos } from "./contextos.ts";
@@ -61,10 +62,24 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
         autor = a;
       }
       if (path === "/auditoria" && req.method === "GET") return enviar(res, 200, audit.listar());
-      // Rotas de aprovação: só o humano (guarda reutilizável). Lógica de aprovação virá em outro ticket.
-      if (/^\/tarefas\/[^/]+\/aprovar$/.test(path) && req.method === "POST") {
-        if (!apenasHumano(autor)) return enviar(res, 403, { error: "Agentes não podem aprovar" });
-        return enviar(res, 501, { error: "Aprovação ainda não implementada" });
+      const me = path.match(/^\/tarefas\/([^/]+)\/eventos$/);
+      if (me && req.method === "GET") {
+        if (!repo.obterTarefa(me[1])) return enviar(res, 404, { error: "Não encontrado" });
+        return enviar(res, 200, repo.listarEventos(me[1]));
+      }
+      // Ciclo de vida da Exploração: guarda apenasHumano antes de qualquer outra checagem.
+      const ma = path.match(/^\/tarefas\/([^/]+)\/([a-z-]+)$/);
+      const tr = ma && req.method === "POST" ? TRANSICOES[ma[2]] : undefined;
+      if (ma && tr) {
+        if (tr.apenasHumano && !apenasHumano(autor)) return enviar(res, 403, { error: "Apenas o humano pode fazer isso" });
+        const t = repo.obterTarefa(ma[1]);
+        if (!t) return enviar(res, 404, { error: "Não encontrado" });
+        if (!tr.de.includes(t.state)) return enviar(res, 409, { error: `Transição inválida: ${t.state} → ${tr.para}` });
+        const { motivo } = await lerJson(req);
+        repo.transicionar(t.id, {
+          autor: rotuloAutor(autor), tipo: ma[2], de: t.state, para: tr.para, motivo: typeof motivo === "string" ? motivo : "",
+        });
+        return enviar(res, 200, comContexto({ ...t, state: tr.para }));
       }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         repo.listarTarefas().map(comContexto),

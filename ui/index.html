@@ -5,6 +5,10 @@
     <title>Agentic Task Manager</title>
   </head>
   <body>
+    <form id="token-form">
+      <input name="token" type="password" placeholder="Token" autocomplete="off" />
+      <button>Salvar token</button>
+    </form>
     <h1>Contextos</h1>
     <form id="novo-contexto">
       <input name="name" placeholder="Nome" required />
@@ -28,6 +32,13 @@
       <button>Criar Tarefa</button>
     </form>
     <p id="erro" role="alert"></p>
+    <button type="button" id="inbox">Aguardando humano (0)</button>
+    <select id="filtro-estado">
+      <option value="">(todos os estados)</option>
+      <option>Novo</option><option>Autorizada para explorar</option><option>Explorando</option>
+      <option>Aguardando humano</option><option>Plano pronto para aprovação</option><option>Aprovado</option><option>Rejeitado</option>
+    </select>
+    <select id="filtro-ctx"></select>
     <ul id="lista"></ul>
     <script type="module" src="app.js"></script>
   </body>
