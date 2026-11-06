@@ -25,11 +25,11 @@ docker compose up -d --build --wait   # API em http://127.0.0.1:3000, UI em http
 docker compose down                   # para (os dados ficam)
 ```
 
-Dados em volumes nomeados: `atm-db` (SQLite, `/data/db`), `atm-attachments` (anexos, `ATM_ATTACHMENTS_DIR=/data/attachments`) e `atm-logs` (reservado). Sobrevivem a `down`/`up`; `docker compose down -v` os apaga. Portas só em `127.0.0.1`. `ATM_HUMAN_TOKEN` é obrigatório (o compose recusa subir sem ele); `ATM_AGENT_TOKENS` (`id:token,...`) é opcional. Todas as rotas exigem `Authorization: Bearer <token>`, exceto `GET /health` (healthcheck, sem token). Na UI, informe o token no formulário "Salvar token": ele fica no `localStorage` do navegador e é enviado como `Authorization: Bearer` em cada requisição (nunca é embutido no código). Healthcheck da API em `GET /health`; a UI só sobe com a API saudável. Configuração por variáveis (`.env`, ver `.env.example`); nunca commite segredos.
+Dados em volumes nomeados: `atm-db` (SQLite, `/data/db`), `atm-attachments` (anexos, `ATM_ATTACHMENTS_DIR=/data/attachments`) e `atm-logs` (**reservado** para os logs das Rodadas da fase 2; o daemon hoje só escreve no stdout e não grava nada ali). Sobrevivem a `down`/`up`; `docker compose down -v` os apaga. Portas só em `127.0.0.1`. `ATM_HUMAN_TOKEN` é obrigatório (o compose recusa subir sem ele); `ATM_AGENT_TOKENS` (`id:token,...`) é opcional. Todas as rotas exigem `Authorization: Bearer <token>`, exceto `GET /health` (healthcheck, sem token). Na UI, informe o token no formulário "Salvar token": ele fica no `localStorage` do navegador e é enviado como `Authorization: Bearer` em cada requisição (nunca é embutido no código). Healthcheck da API em `GET /health`; a UI só sobe com a API saudável. Configuração por variáveis (`.env`, ver `.env.example`); nunca commite segredos.
 
 ## Contextos (RF10)
 
-API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`, `GET /contextos/:id/resolvido` (herança resolvida), `GET /contextos/:id/tarefas[?subarvore=1]`, `PUT /tarefas/:id/contexto`; `POST /tarefas` aceita `contextId`. Config estruturada (`repository`, `testCommands`, `concurrencyLimit`): filho sobrescreve, `null` herda. `instructions`: somam do geral ao específico (último vence).
+API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`, `GET /contextos/:id/resolvido` (herança resolvida), `GET /contextos/:id/tarefas[?subarvore=1]`, `PUT /tarefas/:id/contexto`; `POST /tarefas` aceita `contextId`. **Só o humano** cria/edita Contextos (`POST /contextos`, `PATCH /contextos/:id`) e reatribui Tarefa a Contexto (`PUT /tarefas/:id/contexto`): agente recebe 403 (os `GET` ficam abertos a agentes). Config estruturada (`repository`, `testCommands`, `concurrencyLimit`): filho sobrescreve, `null` herda. `instructions`: somam do geral ao específico (último vence).
 
 ## Anexos (RF13)
 
@@ -52,7 +52,7 @@ Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HT
 
 ## Dependências brandas (RF5)
 
-`POST /tarefas/:id/dependencias {dependeDe}` (B depende de A; 400 para auto-dependência, ciclo ou duplicata), `DELETE /tarefas/:id/dependencias/:aId`. Cada Tarefa traz `dependeDe` e `dependenciasPendentes` (aviso: A ainda não está Aprovada). Com pendência, `iniciar` devolve 409; `POST /tarefas/:id/forcar-inicio` (só humano, 403 para agente) inicia mesmo assim e grava autor, horário e motivo em `tarefa_eventos`. Rejeitar ou reabrir A move cada dependente ativo (Autorizada, Explorando, Plano pronto) para "Aguardando humano" com o motivo no evento (`dependencia-rejeitada` / `dependencia-reaberta`).
+`POST /tarefas/:id/dependencias {dependeDe}` (B depende de A; 400 para auto-dependência, ciclo ou duplicata), `DELETE /tarefas/:id/dependencias/:aId`. Cada Tarefa traz `dependeDe` e `dependenciasPendentes` (aviso: A ainda não está Aprovada). Com pendência, `iniciar`, `iniciar-execucao` e `converter-execucao` devolvem 409; `POST /tarefas/:id/forcar-inicio` (só humano, 403 para agente; vale para Autorizada → Explorando e Na fila → Em execução) inicia mesmo assim e grava autor, horário e motivo em `tarefa_eventos`. A dependência está satisfeita quando A está Aprovada ou já seguiu para a Execução (Na fila, Em execução, Em validação, Concluído). Rejeitar ou reabrir A move cada dependente ativo (Autorizada, Explorando, Plano pronto, Na fila, Em execução, Em validação) para "Aguardando humano" com o motivo no evento (`dependencia-rejeitada` / `dependencia-reaberta`). **Declarar** dependência é permitido ao agente (faz parte do planejamento); **remover** (`DELETE`) é só do humano.
 
 ## Prioridade (RF8)
 
@@ -101,3 +101,12 @@ Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `busc
 - **HTTP (padrão):** Streamable HTTP em `http://127.0.0.1:3100/mcp` (`ATM_MCP_PORT`), publicado só em 127.0.0.1; dentro do Docker escuta em 0.0.0.0. Toda requisição precisa de `Authorization: Bearer <ATM_AGENT_TOKEN>`, senão 401. `GET /health` sem autenticação. O serviço `mcp` do `docker compose up` sobe depois do daemon saudável; sem `ATM_AGENT_TOKEN` no `.env` o compose recusa com mensagem clara.
 - **stdio:** `docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp`, ou localmente `ATM_API_URL=... ATM_AGENT_TOKEN=... node mcp/src/main.ts --stdio`.
 - Local sem Docker: `cd mcp && npm ci && npm start` (host `ATM_MCP_HOST`, padrão 127.0.0.1). Testes: `npm test` (sobe o daemon real) e `npm run typecheck`.
+
+## Segurança e limites
+
+- **Tokens:** o daemon recusa iniciar sem `ATM_HUMAN_TOKEN`, e recusa tokens (humano ou de agente) que comecem com `troque-por` (valor de exemplo do `.env.example`) ou tenham menos de 16 caracteres. `startDaemon` exige `credenciais` (não existe modo "sem autenticação"). `ATM_AGENT_TOKEN` (usado pelo serviço `mcp`) **deve ser igual** ao token de um agente em `ATM_AGENT_TOKENS`; o compose não o deriva sozinho.
+- **`.env` como fallback:** se `ATM_HUMAN_TOKEN` não vier do ambiente, o daemon lê `./.env`. Isso é só para desenvolvimento local sem Docker (ADR-0007); no Compose use variáveis de ambiente.
+- **CORS:** só as origens em `ATM_CORS_ORIGIN` (vírgula; padrão `http://127.0.0.1:5173,http://localhost:5173`) recebem `Access-Control-Allow-Origin`; nunca `*`.
+- **Limites:** corpo JSON até 1 MiB e upload até 25 MiB; acima disso, 413 imediato. Downloads de anexos saem com `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment` e `application/octet-stream` exceto png/jpeg/gif/webp/pdf/txt.
+- **Auditoria:** `/health` e `OPTIONS` não são auditados; requisições sem token válido são registradas como `anonimo` (401).
+- **FTS5** do SQLite é obrigatório (a abertura falha com erro claro sem ele).

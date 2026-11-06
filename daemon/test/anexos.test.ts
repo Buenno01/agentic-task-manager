@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { startDaemon, type Daemon } from "../src/api/server.ts";
 import { abrirAnexos } from "../src/db/anexos.ts";
 import { docx, pdf } from "./fixtures.ts";
+import { CRED, HUMANO, comToken } from "./helpers.ts";
 
 let daemon: Daemon;
 let dir: string;
@@ -15,6 +16,7 @@ beforeEach(async () => {
   daemon = await startDaemon({
     dbPath: join(dir, "atm.db"),
     port: 0,
+    credenciais: CRED,
     anexosDir: join(dir, "anexos"),
     anexoMaxBytes: 1000,
   });
@@ -27,13 +29,14 @@ afterEach(async () => {
 const json = (method: string, path: string, body?: unknown) =>
   fetch(daemon.url + path, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: comToken(HUMANO, { "content-type": "application/json" }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+const baixar = (path: string) => fetch(daemon.url + path, { headers: comToken(HUMANO) });
 const subir = (base: string, nome: string, dados: Buffer | string, tipo = "application/octet-stream") =>
   fetch(`${daemon.url}${base}/anexos?nome=${encodeURIComponent(nome)}`, {
     method: "POST",
-    headers: { "content-type": tipo },
+    headers: comToken(HUMANO, { "content-type": tipo }),
     body: typeof dados === "string" ? dados : new Uint8Array(dados),
   });
 const tarefa = async () => (await (await json("POST", "/tarefas", { title: "T" })).json()).id as string;
@@ -51,7 +54,7 @@ test("anexa a uma Tarefa e baixa os mesmos bytes", async () => {
   assert.equal(meta.mimeType, "image/png");
   assert.equal(meta.hasText, false);
 
-  const down = await fetch(`${daemon.url}/anexos/${meta.id}`);
+  const down = await baixar(`/anexos/${meta.id}`);
   assert.equal(down.status, 200);
   assert.equal(down.headers.get("content-type"), "image/png");
   assert.match(down.headers.get("content-disposition")!, /attachment/);
@@ -73,7 +76,7 @@ test("dono inexistente: 404; sem nome: 400", async () => {
   assert.equal((await subir("/tarefas/nao-existe", "a.txt", "x")).status, 404);
   assert.equal((await subir("/contextos/nao-existe", "a.txt", "x")).status, 404);
   const id = await tarefa();
-  const res = await fetch(`${daemon.url}/tarefas/${id}/anexos`, { method: "POST", body: "x" });
+  const res = await fetch(`${daemon.url}/tarefas/${id}/anexos`, { method: "POST", headers: comToken(HUMANO), body: "x" });
   assert.equal(res.status, 400);
   assert.equal((await json("GET", "/anexos/nao-existe")).status, 404);
 });
@@ -98,7 +101,7 @@ test("nome de arquivo é sanitizado e o arquivo fica sob id gerado", async () =>
   assert.equal(arquivos.length, 2);
   assert.ok(arquivos.includes(meta.id) && arquivos.includes(meta2.id));
   assert.ok(!existsSync(join(dir, "etc")));
-  const down = await fetch(`${daemon.url}/anexos/${meta.id}`);
+  const down = await baixar(`/anexos/${meta.id}`);
   assert.doesNotMatch(down.headers.get("content-disposition")!, /\.\.|\//);
 });
 
@@ -112,9 +115,9 @@ test("texto de PDF, docx e txt é extraído; imagem e planilha não", async () =
   const x = await (await subir(base, "p.xlsx", Buffer.from("PK"))).json();
   assert.deepEqual([p, d, t, i, x].map((a) => a.hasText), [true, true, true, false, false]);
 
-  const texto = await (await fetch(`${daemon.url}/anexos/${p.id}/texto`)).json();
+  const texto = await (await baixar(`/anexos/${p.id}/texto`)).json();
   assert.match(texto.text, /Relatório de vendas/);
-  assert.equal((await fetch(`${daemon.url}/anexos/${i.id}/texto`)).status, 404);
+  assert.equal((await baixar(`/anexos/${i.id}/texto`)).status, 404);
 });
 
 test("texto extraído fica indexado e pesquisável (insumo do ticket 13)", async () => {
@@ -124,7 +127,7 @@ test("texto extraído fica indexado e pesquisável (insumo do ticket 13)", async
   await (await subir(`/contextos/${c}`, "n.txt", "lista de preços")).json();
   const anexos = abrirAnexos(join(dir, "atm.db"), join(dir, "anexos"));
   try {
-    assert.equal(anexos.temFts(), true); // node:sqlite tem FTS5
+    assert.equal(anexos.buscar("vendas").length, 1);
     const achados = anexos.buscar("vendas");
     assert.deepEqual(achados.map((a) => [a.id, a.ownerType, a.ownerId]), [[p.id, "tarefa", id]]);
     assert.equal(anexos.buscar("preços")[0].ownerType, "contexto");

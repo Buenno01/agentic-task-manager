@@ -23,7 +23,15 @@ function lerDotenv(caminho: string): Record<string, string> {
   return out;
 }
 
-/** Variáveis de ambiente têm precedência sobre o `.env`. Sem token humano, devolve undefined. */
+/** Tokens de exemplo ou fracos nunca valem (cópia crua do .env.example). */
+const TOKEN_MIN = 16;
+function validarToken(nome: string, valor: string) {
+  if (valor.startsWith("troque-por"))
+    throw new Error(`${nome} ainda é o valor de exemplo (troque-por…); gere um token longo e aleatório.`);
+  if (valor.length < TOKEN_MIN) throw new Error(`${nome} é curto demais: use ao menos ${TOKEN_MIN} caracteres.`);
+}
+
+/** Variáveis de ambiente têm precedência sobre o `.env` (fallback só para desenvolvimento local). Sem token humano, devolve undefined. */
 export function carregarCredenciais(
   env: Record<string, string | undefined> = process.env,
   arquivoEnv = ".env",
@@ -31,10 +39,16 @@ export function carregarCredenciais(
   const fonte = { ...lerDotenv(arquivoEnv), ...Object.fromEntries(Object.entries(env).filter(([, v]) => v)) };
   const humano = fonte.ATM_HUMAN_TOKEN;
   if (!humano) return undefined;
+  validarToken("ATM_HUMAN_TOKEN", humano);
   const agentes: Record<string, string> = {};
   for (const par of (fonte.ATM_AGENT_TOKENS ?? "").split(",")) {
     const i = par.indexOf(":");
-    if (i > 0 && i < par.length - 1) agentes[par.slice(0, i).trim()] = par.slice(i + 1).trim();
+    if (i > 0 && i < par.length - 1) {
+      const id = par.slice(0, i).trim();
+      const token = par.slice(i + 1).trim();
+      validarToken(`ATM_AGENT_TOKENS (agente "${id}")`, token);
+      agentes[id] = token;
+    }
   }
   return { humano, agentes };
 }

@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { ArmazemAnexos, DonoAnexo } from "../db/anexos.ts";
 import { ErroValidacao } from "../domain/tarefa.ts";
+import { lerCorpoLimitado } from "./corpo.ts";
 
 export interface RespostaAnexo {
   status: number;
@@ -11,21 +12,14 @@ export interface RespostaAnexo {
 
 export const LIMITE_ANEXO_PADRAO = 25 * 1024 * 1024;
 
-/** Lê o corpo cru; acima do limite descarta o resto e devolve null (413). */
-async function lerCru(req: IncomingMessage, max: number): Promise<Buffer | null> {
-  const declarado = Number(req.headers["content-length"]);
-  const partes: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total <= max) partes.push(chunk);
-  }
-  return total > max || declarado > max ? null : Buffer.concat(partes);
-}
+/** Tipos servidos como estão no download; qualquer outro vira application/octet-stream. */
+const TIPOS_SEGUROS = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain",
+]);
+export const tipoSeguro = (tipo: string) => (TIPOS_SEGUROS.has(tipo.toLowerCase()) ? tipo.toLowerCase() : "application/octet-stream");
 
-const dispositionSegura = (nome: string) =>
+export const dispositionSegura = (nome: string) =>
   `attachment; filename="${nome.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(nome)}`;
-export { dispositionSegura };
 
 /**
  * Rotas de anexos (RF13):
@@ -52,7 +46,7 @@ export function rotaAnexos(
     if (metodo === "GET") return { status: 200, corpo: store.listar(tipo, md[2]) };
     const nome = (query.get("nome") ?? "").trim();
     if (!nome) throw new ErroValidacao("Informe o nome do arquivo (?nome=)");
-    return lerCru(req, maxBytes).then((dados) => {
+    return lerCorpoLimitado(req, maxBytes).then((dados) => {
       if (dados === null) return { status: 413, corpo: { error: `Arquivo excede ${maxBytes} bytes` } };
       const tipoMime = (req.headers["content-type"] ?? "").split(";")[0].trim() || "application/octet-stream";
       return { status: 201, corpo: store.salvar({ tipo, id: md[2] }, nome, tipoMime, dados) };

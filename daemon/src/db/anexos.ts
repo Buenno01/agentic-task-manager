@@ -17,8 +17,6 @@ export interface Anexo {
   createdAt: string;
 }
 
-export interface AchadoAnexo extends Anexo {}
-
 /** Nome seguro: só o último segmento (sem / ou \), sem controle, sem pontos iniciais, limitado. */
 export function sanitizarNome(nome: string): string {
   const base = nome.split(/[\\/]/).pop() ?? "";
@@ -29,7 +27,7 @@ export function sanitizarNome(nome: string): string {
 /**
  * Anexos (RF13): arquivo em disco sob id gerado (ATM_ATTACHMENTS_DIR), metadados em SQLite
  * e texto extraído indexado em FTS5 (`anexos_fts`) para a busca do ticket 13.
- * Se o SQLite não tiver FTS5, cai para tabela comum com busca LIKE.
+ * FTS5 é obrigatório: sem ele a abertura falha com erro claro.
  */
 export function abrirAnexos(dbPath: string, dir: string) {
   const db = new DatabaseSync(dbPath);
@@ -47,14 +45,12 @@ export function abrirAnexos(dbPath: string, dir: string) {
     );
     CREATE INDEX IF NOT EXISTS anexos_dono ON anexos(owner_type, owner_id);
   `);
-  let fts = true;
   try {
     db.exec(
       "CREATE VIRTUAL TABLE IF NOT EXISTS anexos_fts USING fts5(texto, anexo_id UNINDEXED, tokenize = 'unicode61 remove_diacritics 2')",
     );
-  } catch {
-    fts = false;
-    db.exec("CREATE TABLE IF NOT EXISTS anexos_fts (texto TEXT, anexo_id TEXT)");
+  } catch (e) {
+    throw new Error(`SQLite sem suporte a FTS5, obrigatório para a busca de anexos: ${(e as Error).message}`);
   }
   const cols =
     "id, owner_type AS ownerType, owner_id AS ownerId, name, mime_type AS mimeType, size, has_text AS hasText, created_at AS createdAt";
@@ -70,10 +66,6 @@ export function abrirAnexos(dbPath: string, dir: string) {
     busca: db.prepare(
       `SELECT ${colsA}
        FROM anexos_fts f JOIN anexos a ON a.id = f.anexo_id WHERE anexos_fts MATCH ? ORDER BY rank`,
-    ),
-    buscaLike: db.prepare(
-      `SELECT ${colsA}
-       FROM anexos_fts f JOIN anexos a ON a.id = f.anexo_id WHERE f.texto LIKE ? ESCAPE '\\'`,
     ),
   };
   return {
@@ -106,23 +98,12 @@ export function abrirAnexos(dbPath: string, dir: string) {
     ler: (id: string): Buffer => readFileSync(join(dir, id)),
     texto: (id: string): string | undefined => (q.texto.get(id) as { texto: string } | undefined)?.texto,
     /** Busca no texto indexado (todas as palavras). Consulta inválida devolve []. */
-    buscar(consulta: string): AchadoAnexo[] {
+    buscar(consulta: string): Anexo[] {
       const palavras = consulta.match(/[\p{L}\p{N}]+/gu) ?? [];
       if (palavras.length === 0) return [];
-      let rows: Row[];
-      if (fts) rows = q.busca.all(palavras.map((p) => `"${p}"`).join(" ")) as unknown as Row[];
-      else {
-        const vistos = new Map<string, Row>();
-        const primeira = q.buscaLike.all(`%${palavras[0]}%`) as unknown as Row[];
-        for (const r of primeira) {
-          const t = q.texto.get(r.id) as { texto: string };
-          if (palavras.every((p) => t.texto.toLowerCase().includes(p.toLowerCase()))) vistos.set(r.id, r);
-        }
-        rows = [...vistos.values()];
-      }
+      const rows = q.busca.all(palavras.map((p) => `"${p}"`).join(" ")) as unknown as Row[];
       return rows.map(paraAnexo);
     },
-    temFts: () => fts,
     close: () => db.close(),
   };
 }

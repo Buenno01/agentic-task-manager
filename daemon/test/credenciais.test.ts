@@ -86,17 +86,27 @@ test("segredos não aparecem em texto aberto no banco", async () => {
 });
 
 test("credenciais vêm de variáveis de ambiente ou .env", () => {
-  const env = { ATM_HUMAN_TOKEN: "h", ATM_AGENT_TOKENS: "a1:t1,a2:t2" };
+  const env = { ATM_HUMAN_TOKEN: "h".repeat(16), ATM_AGENT_TOKENS: `a1:${"1".repeat(16)},a2:${"2".repeat(16)}` };
   assert.deepEqual(carregarCredenciais(env, join(dir, "naoexiste.env")), {
-    humano: "h",
-    agentes: { a1: "t1", a2: "t2" },
+    humano: "h".repeat(16),
+    agentes: { a1: "1".repeat(16), a2: "2".repeat(16) },
   });
   const arq = join(dir, ".env");
-  writeFileSync(arq, '# c\nATM_HUMAN_TOKEN="hh"\nATM_AGENT_TOKENS=x:y\n');
-  assert.deepEqual(carregarCredenciais({}, arq), { humano: "hh", agentes: { x: "y" } });
+  writeFileSync(arq, `# c\nATM_HUMAN_TOKEN="${"q".repeat(20)}"\nATM_AGENT_TOKENS=x:${"y".repeat(20)}\n`);
+  assert.deepEqual(carregarCredenciais({}, arq), { humano: "q".repeat(20), agentes: { x: "y".repeat(20) } });
   // ambiente tem precedência sobre o arquivo
-  assert.equal(carregarCredenciais({ ATM_HUMAN_TOKEN: "env" }, arq)?.humano, "env");
+  assert.equal(carregarCredenciais({ ATM_HUMAN_TOKEN: "e".repeat(16) }, arq)?.humano, "e".repeat(16));
   assert.equal(carregarCredenciais({}, join(dir, "naoexiste.env")), undefined);
+});
+
+test("tokens de exemplo (troque-por…) ou curtos (<16) são recusados na carga", () => {
+  const nx = join(dir, "naoexiste.env");
+  assert.throws(() => carregarCredenciais({ ATM_HUMAN_TOKEN: "troque-por-um-token-longo-e-aleatorio" }, nx), /ATM_HUMAN_TOKEN.*(placeholder|exemplo|troque)/i);
+  assert.throws(() => carregarCredenciais({ ATM_HUMAN_TOKEN: "curto" }, nx), /ATM_HUMAN_TOKEN.*16/);
+  const bom = "b".repeat(16);
+  assert.throws(() => carregarCredenciais({ ATM_HUMAN_TOKEN: bom, ATM_AGENT_TOKENS: "agente:troque-por-outro-token-longo-e-aleatorio" }, nx), /agente/i);
+  assert.throws(() => carregarCredenciais({ ATM_HUMAN_TOKEN: bom, ATM_AGENT_TOKENS: "agente:curto" }, nx), /16/);
+  assert.ok(carregarCredenciais({ ATM_HUMAN_TOKEN: bom, ATM_AGENT_TOKENS: "" }, nx));
 });
 
 test("o daemon não escreve tokens nos logs", async () => {

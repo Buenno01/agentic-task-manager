@@ -5,12 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, type Daemon } from "../src/api/server.ts";
 
+import { CRED, HUMANO, comToken } from "./helpers.ts";
+
 let daemon: Daemon;
 let dir: string;
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "atm-ctx-"));
-  daemon = await startDaemon({ dbPath: join(dir, "atm.db"), port: 0 });
+  daemon = await startDaemon({ dbPath: join(dir, "atm.db"), port: 0, credenciais: CRED });
 });
 afterEach(async () => {
   await daemon.close();
@@ -20,7 +22,7 @@ afterEach(async () => {
 const send = (method: string, path: string, body?: unknown) =>
   fetch(daemon.url + path, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: comToken(HUMANO, { "content-type": "application/json" }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 const criar = async (body: Record<string, unknown>) => {
@@ -148,7 +150,7 @@ test("Tarefa associável a qualquer nível, na criação ou depois", async () =>
 test("Contextos persistem após reiniciar o daemon", async () => {
   const c = await criar({ name: "Persistente", kind: "projeto", testCommands: ["t"] });
   await daemon.close();
-  daemon = await startDaemon({ dbPath: join(dir, "atm.db"), port: 0 });
+  daemon = await startDaemon({ dbPath: join(dir, "atm.db"), port: 0, credenciais: CRED });
   const got = await (await send("GET", `/contextos/${c.id}`)).json();
   assert.deepEqual(got.testCommands, ["t"]);
 });

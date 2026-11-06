@@ -11,6 +11,8 @@ services:
       ATM_ATTACHMENTS_DIR: /data/attachments
       ATM_HUMAN_TOKEN: ${ATM_HUMAN_TOKEN:?defina ATM_HUMAN_TOKEN no .env}
       ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:-}
+      # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
+      ATM_CORS_ORIGIN: ${ATM_CORS_ORIGIN:-}
     ports:
       - "127.0.0.1:${ATM_PORT:-3000}:3000"
     volumes:
