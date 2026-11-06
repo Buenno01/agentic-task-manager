@@ -34,7 +34,7 @@ const subir = (base: string, nome: string, dados: Buffer | string, tipo = "appli
   fetch(`${daemon.url}${base}/anexos?nome=${encodeURIComponent(nome)}`, {
     method: "POST",
     headers: { "content-type": tipo },
-    body: dados,
+    body: typeof dados === "string" ? dados : new Uint8Array(dados),
   });
 const tarefa = async () => (await (await json("POST", "/tarefas", { title: "T" })).json()).id as string;
 const contexto = async () =>

@@ -1,4 +1,12 @@
 const API = new URLSearchParams(location.search).get("api") ?? "http://127.0.0.1:3000";
+const TOKEN_KEY = "atm-token";
+const _fetch = window.fetch.bind(window);
+// Todas as requisições à API levam o token guardado no navegador (nunca embutido no código).
+const fetch = (url, init = {}) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers = { ...(init.headers ?? {}), ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  return _fetch(url, { ...init, headers });
+};
 const lista = document.getElementById("lista");
 const erro = document.getElementById("erro");
 
@@ -55,17 +63,81 @@ document.getElementById("novo-contexto").addEventListener("submit", async (e) =>
   await carregarContextos();
 });
 
+const filtroEstado = document.getElementById("filtro-estado");
+const filtroCtx = document.getElementById("filtro-ctx");
+const inbox = document.getElementById("inbox");
+const AGUARDANDO = "Aguardando humano";
+// Ações humanas por estado atual (nomes iguais aos de POST /tarefas/:id/:acao).
+const ACOES = {
+  Novo: ["autorizar", "rejeitar"],
+  "Plano pronto para aprovação": ["aprovar", "rejeitar"],
+  Rejeitado: ["reabrir"],
+};
+let soAguardando = false;
+
+async function agir(id, acao) {
+  erro.textContent = "";
+  const motivo = prompt(`Motivo para ${acao} (opcional):`) ?? "";
+  const res = await fetch(`${API}/tarefas/${id}/${acao}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ motivo }),
+  });
+  if (!res.ok) erro.textContent = (await res.json()).error;
+  await carregar();
+}
+
 async function carregar() {
   await carregarContextos();
-  const tarefas = await (await fetch(`${API}/tarefas`)).json();
+  const ctxSel = filtroCtx.value;
+  opcoes(filtroCtx, await (await fetch(`${API}/contextos/arvore`)).json(), "(todos os Contextos)");
+  filtroCtx.value = ctxSel;
+  const res = await fetch(`${API}/tarefas`);
+  if (!res.ok) {
+    erro.textContent = res.status === 401 ? "Token inválido ou ausente" : "Erro ao carregar tarefas";
+    return;
+  }
+  const todas = await res.json();
+  inbox.textContent = `Aguardando humano (${todas.filter((t) => t.state === AGUARDANDO).length})`;
+  const tarefas = todas.filter(
+    (t) =>
+      (soAguardando ? t.state === AGUARDANDO : !filtroEstado.value || t.state === filtroEstado.value) &&
+      (!filtroCtx.value || t.contextId === filtroCtx.value),
+  );
   lista.replaceChildren(
     ...tarefas.map((t) => {
       const li = document.createElement("li");
-      li.textContent = `[${t.phase} · ${t.state}] ${t.contextId ? "(" + (nomes.get(t.contextId) ?? "?") + ") " : ""}${t.title}${t.description ? " — " + t.description : ""}`;
+      li.append(`[${t.phase} · ${t.state}] ${t.contextId ? "(" + (nomes.get(t.contextId) ?? "?") + ") " : ""}${t.title}${t.description ? " — " + t.description : ""} `);
+      for (const acao of ACOES[t.state] ?? []) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = acao;
+        b.addEventListener("click", () => agir(t.id, acao));
+        li.append(b, " ");
+      }
       return li;
     }),
   );
 }
+
+inbox.addEventListener("click", () => {
+  soAguardando = !soAguardando;
+  carregar();
+});
+filtroEstado.addEventListener("change", () => {
+  soAguardando = false;
+  carregar();
+});
+filtroCtx.addEventListener("change", carregar);
+
+const formToken = document.getElementById("token-form");
+formToken.token.value = localStorage.getItem(TOKEN_KEY) ?? "";
+formToken.addEventListener("submit", (e) => {
+  e.preventDefault();
+  localStorage.setItem(TOKEN_KEY, formToken.token.value);
+  erro.textContent = "";
+  carregar().catch(() => (erro.textContent = "API indisponível"));
+});
 
 document.getElementById("nova").addEventListener("submit", async (e) => {
   e.preventDefault();

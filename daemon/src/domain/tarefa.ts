@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 export type Fase = "Exploração" | "Execução";
-export type EstadoExploracao = "Novo";
+export type EstadoExploracao =
+  | "Novo"
+  | "Autorizada para explorar"
+  | "Explorando"
+  | "Aguardando humano"
+  | "Plano pronto para aprovação"
+  | "Aprovado"
+  | "Rejeitado";
 
 export interface Tarefa {
   id: string;
