@@ -43,7 +43,6 @@ cd daemon && npm test && npm run typecheck
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
 
-
 ## Comentários e histórico
 
 - `POST /tarefas/:id/comentarios` `{texto, tipo?: comentario|pergunta|resposta, respondeA?}`: o autor vem do token. `resposta` exige `respondeA` apontando para uma `pergunta` da mesma Tarefa.
@@ -62,3 +61,7 @@ Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HT
 ## Área prevista e sobreposição (RF18)
 
 `PUT /tarefas/:id/area-prevista` com `{"paths": ["src/api", "ui/*.js"]}` registra a Área prevista do plano (caminhos, diretórios ou globs `*`, `?`, `**`; vira evento no histórico; recusado após Aprovado/Rejeitado). `GET /tarefas` e as respostas das ações devolvem `intendedArea` e `overlapWarnings` (outras Tarefas abertas, isto é, não Rejeitadas, do mesmo repositório resolvido pelo Contexto, com Área sobreposta); `GET /tarefas/:id/sobreposicao` devolve só os avisos. O aviso nunca bloqueia: aprovar continua possível. A UI mostra o aviso na lista, antes dos botões de Aprovação.
+
+## Contexto consolidado versionado (RF12)
+
+API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca do ticket 13.

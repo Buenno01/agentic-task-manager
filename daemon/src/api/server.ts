@@ -13,6 +13,8 @@ import { abrirModuloDependencias } from "./dependencias.ts";
 import { abrirPrioridades } from "../db/prioridade.ts";
 import { ordenarPorPrioridade } from "../domain/prioridade.ts";
 import { definirPrioridade } from "./prioridade.ts";
+import { abrirConsolidado } from "../db/consolidado.ts";
+import { rotaConsolidado } from "./consolidado.ts";
 import { abrirAuditoria } from "../db/auditoria.ts";
 import { abrirArea } from "../db/area.ts";
 import { criarArea } from "./area.ts";
@@ -61,6 +63,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       ...deps.anexar(t.id),
       priority: prios.obter(t.id),
     });
+  const cons = abrirConsolidado(opts.dbPath);
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação registra o autor.
     let autor: Autor = { tipo: "humano" };
@@ -127,6 +130,11 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
       }
       const rar = await area.rota(req.method ?? "GET", path, () => lerJson(req), rotuloAutor(autor));
       if (rar) return enviar(res, rar.status, rar.corpo);
+      const rcons = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), rotuloAutor(autor), req.method ?? "GET", path, () => lerJson(req));
+      if (rcons) {
+        const r = await rcons;
+        return enviar(res, r.status, r.corpo);
+      }
       const rc = rotaContextos(ctx, req.method ?? "GET", path, url.searchParams, () => lerJson(req), () =>
         ordenarPorPrioridade(repo.listarTarefas().map(comContexto)),
       );
@@ -178,6 +186,7 @@ export function startDaemon(opts: { dbPath: string; port: number; host?: string;
               deps.close();
               prios.close();
               areaDb.close();
+              cons.close();
               r();
             });
             server.closeAllConnections();
