@@ -38,3 +38,13 @@ cd daemon && npm test && npm run typecheck
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
+
+## Fase Execução e mudança material (RF2, RF4, RF6, RF17)
+
+Dados da Execução ficam na tabela lateral `tarefa_execucao` (objetivo, repositório principal, critérios, entregáveis, permissões, `puladaExploracao`). Só o humano cria/move na Execução (agente recebe 403).
+
+- `POST /tarefas` com `"phase": "Execução"` + `objetivo`, `repositorioPrincipal`, `criterios[]` (humano; evento `criar-execucao` registra que a Exploração foi pulada).
+- `POST /tarefas/:id/converter-execucao` (mesmo corpo): mantém o histórico e grava o evento `converter-execucao` (motivo indica se a Exploração foi pulada). Não vale para Rejeitado.
+- Estados: `iniciar-execucao` (Na fila→Em execução), `aguardar-humano-execucao`, `retomar-execucao`, `validar-execucao` (→Em validação), `concluir-execucao` (→Concluído).
+- `GET|PATCH /tarefas/:id/execucao`: editar repositório principal, critérios, entregáveis ou permissões (valor diferente) de plano Aprovado ou de Tarefa em Execução devolve-a a Exploração · "Plano pronto para aprovação" (evento `mudanca-material`); exige nova Aprovação.
+

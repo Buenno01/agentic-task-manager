@@ -10,12 +10,14 @@ export type EstadoExploracao =
   | "Aprovado"
   | "Rejeitado";
 
+export type EstadoExecucao = "Na fila" | "Em execução" | "Aguardando humano" | "Em validação" | "Concluído";
+
 export interface Tarefa {
   id: string;
   title: string;
   description: string;
   phase: Fase;
-  state: EstadoExploracao;
+  state: EstadoExploracao | EstadoExecucao;
   createdAt: string;
 }
 
