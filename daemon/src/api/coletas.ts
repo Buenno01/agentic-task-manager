@@ -22,6 +22,8 @@ export interface DepsColetas {
    * Nunca deve lançar; se lançar, a Coleta não é afetada.
    */
   aoDetectarAnomalia?: (anomalia: Anomalia, coletor: Coletor) => void;
+  /** Gancho do ticket 08: chamado pelo agendador após a varredura de cada Coletor (fechamento de período). Nunca deve lançar. */
+  aoVarrerColetor?: (coletor: Coletor) => void;
   cliente: ClienteColeta;
   relogio: () => number;
   mascarador: Mascarador;

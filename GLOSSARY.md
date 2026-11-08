@@ -127,6 +127,10 @@ Período sem dados por falha de Coleta. Fica consultável pela API e pode ser re
 Coleta que termina com sucesso, mas sem parte das métricas, por exemplo sessões e conversão quando o ShopifyQL falha ou a loja não tem analytics. Pedidos, receita e produtos são gravados; as métricas ausentes ficam explícitas como ausentes, nunca como zero, e o período entra como Lacuna parcial até uma recoleta completá-lo. A Anomalia não avalia métrica ausente.
 _Avoid_: Coleta falha (a Coleta parcial conclui; falha é a que não grava Snapshot)
 
+**Análise de monitoramento** (Monitoring analysis):
+Tarefa de Exploração criada sozinha no Contexto do Coletor quando uma Anomalia é detectada ou um período fecha (padrão: semanal, segunda 07:00 no fuso da loja, analisando a semana anterior; também `mensal` ou `nenhum`), mesmo sem Anomalia. Nasce "Novo", prioridade média com justificativa automática, corpo de um template fixo somado às instruções do Contexto e Perfil de agente herdado dele. Havendo uma aberta do mesmo Coletor, Anomalias e fechamentos novos se anexam a ela como evidência. Com `analise_automatica` ligada no Coletor nasce "Autorizada para explorar": pré-autorização explícita e rastreável, só para Exploração; o agente continua sem aprovar nada. As oportunidades que o agente encontra entram como Tarefas "Novo".
+_Avoid_: Relatório, dashboard
+
 ### Isolamento
 
 **Workspace** (Workspace):
