@@ -18,6 +18,7 @@ async function subir(roteiro: Roteiro) {
     credenciais: CRED,
     workspacesDir: join(dir, "ws"),
     executor: criarExecutorFalso(roteiro),
+    orquestrador: false,
   });
 }
 beforeEach(() => {

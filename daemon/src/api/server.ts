@@ -28,10 +28,13 @@ import { abrirRodadas } from "../db/rodadas.ts";
 import { criarRodadas } from "../rodada/executar.ts";
 import { rotaRodadas } from "./rodadas.ts";
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
+import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
   url: string;
+  /** Uma varredura do orquestrador (aguarda terminar); no-op se desligado. */
+  varrer(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -51,6 +54,8 @@ export interface OpcoesDaemon {
   workspacesDir?: string;
   /** URL do MCP entregue ao processo do agente (ADR-0008; padrão: ATM_MCP_URL ou http://mcp:3100/mcp). */
   mcpUrl?: string;
+  /** Orquestrador (ticket 02). `false` desliga; sem Executor injetado ele também fica desligado. */
+  orquestrador?: OpcoesOrquestrador | false;
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -111,7 +116,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const buscaDb = abrirBusca(opts.dbPath);
   const rodadasDb = abrirRodadas(opts.dbPath);
   let urlDaemon = "";
-  const orquestrador = criarRodadas({
+  let orq: Orquestrador | undefined;
+  const rodadasCtl = criarRodadas({
     repo,
     rodadas: rodadasDb,
     executor: opts.executor ?? executorNaoConfigurado,
@@ -119,7 +125,27 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     mcpUrl: opts.mcpUrl ?? process.env.ATM_MCP_URL ?? "http://mcp:3100/mcp",
     tokenAgente: credenciais.agentes.orquestrador ?? "",
     apiUrl: () => urlDaemon,
+    aoTerminar: () => orq?.mudou(),
   });
+  const orquestrador = rodadasCtl;
+  if (opts.executor && opts.orquestrador !== false) {
+    orq = criarOrquestrador(
+      {
+        tarefas: () => repo.listarTarefas(),
+        prioridade: (id) => prios.obter(id),
+        contextos: () => ctx.listar(),
+        contextoDaTarefa: (id) => ctx.contextoDaTarefa(id),
+        emAndamento: () => rodadasDb.emAndamento(),
+        totalRodadas: (id) => rodadasDb.totalDaTarefa(id),
+        dependenciasPendentes: (id) => deps.anexar(id).dependenciasPendentes.length,
+        foiForcada: (id) => repo.listarEventos(id).some((e) => e.tipo === "forcar-inicio"),
+        marcarInicio: (t, para, tipo) =>
+          repo.transicionar(t.id, { autor: AUTOR_ORQUESTRADOR, tipo, de: t.state, para, motivo: "Rodada iniciada pelo orquestrador" }),
+        iniciarRodada: (id, tipo) => rodadasCtl.iniciar(id, tipo),
+      },
+      opts.orquestrador || undefined,
+    );
+  }
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação autenticada registra o autor.
     // Sondagens (/health, OPTIONS) não entram na auditoria.
@@ -131,6 +157,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     const enviar = (status: number, corpo?: unknown) => {
       if (auditar) audit.registrar(autor ? rotuloAutor(autor) : "anonimo", metodo, path, status);
       envio(res, cors, status, corpo);
+      // Mudança de estado de Tarefa (ou criação): o orquestrador reavalia a fila.
+      if (metodo !== "GET" && status < 300) orq?.mudou();
     };
     try {
       const url = new URL(req.url ?? "/", "http://x");
@@ -293,7 +321,9 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       urlDaemon = `http://127.0.0.1:${port}`;
       resolve({
         url: urlDaemon,
+        varrer: async () => void (await orq?.varrer()),
         close: async () => {
+          await orq?.parar();
           await orquestrador.encerrar();
           await new Promise<void>((r) => {
             server.close(() => {

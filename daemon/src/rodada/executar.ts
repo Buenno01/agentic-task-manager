@@ -18,6 +18,8 @@ export interface DepsRodada {
   tokenAgente: string;
   /** URL da API do próprio daemon (conhecida só depois do listen). */
   apiUrl: () => string;
+  /** Chamado quando uma Rodada termina (o orquestrador reage liberando vaga). */
+  aoTerminar?: () => void;
 }
 
 const AUTOR = "agente:orquestrador";
@@ -68,6 +70,7 @@ export function criarRodadas(d: DepsRodada) {
           d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: cancelada ? "rodada-cancelada" : "rodada-falhou", motivo: msg });
         } finally {
           ativas.delete(rodada.id);
+          d.aoTerminar?.();
         }
       })();
       ativas.set(rodada.id, { abort, fim });

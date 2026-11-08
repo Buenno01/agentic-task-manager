@@ -79,6 +79,8 @@ export function abrirRodadas(path: string) {
   const umaR = db.prepare(`SELECT ${colsR} FROM rodadas WHERE id = ?`);
   const daTarefa = db.prepare(`SELECT ${colsR} FROM rodadas WHERE tarefa_id = ? ORDER BY seq`);
   const ativa = db.prepare(`SELECT id FROM rodadas WHERE tarefa_id = ? AND estado = 'em andamento' ORDER BY seq DESC LIMIT 1`);
+  const todasAtivas = db.prepare("SELECT id, tarefa_id AS tarefaId FROM rodadas WHERE estado = 'em andamento' ORDER BY seq");
+  const total = db.prepare("SELECT COUNT(*) AS n FROM rodadas WHERE tarefa_id = ?");
   const fim = db.prepare("UPDATE rodadas SET estado = ?, terminada_em = ?, erro = ? WHERE id = ?");
   const segs = db.prepare(
     "SELECT id, seq, modelo, provedor, tokens_entrada AS tokensEntrada, tokens_saida AS tokensSaida, chamadas, custo_estimado AS custoEstimado FROM rodada_segmentos WHERE rodada_id = ? ORDER BY seq",
@@ -122,6 +124,8 @@ export function abrirRodadas(path: string) {
     },
     listarDaTarefa: (tarefaId: string) => (daTarefa.all(tarefaId) as Record<string, unknown>[]).map(completa),
     ativaDaTarefa: (tarefaId: string) => (ativa.get(tarefaId) as { id: string } | undefined)?.id,
+    emAndamento: () => todasAtivas.all() as unknown as { id: string; tarefaId: string }[],
+    totalDaTarefa: (tarefaId: string) => (total.get(tarefaId) as { n: number }).n,
     finalizar: (id: string, estado: EstadoRodada, erro?: string) => void fim.run(estado, agora(), erro ?? null, id),
     registrarEvento: (rodadaId: string, tipo: string, dados: Record<string, unknown>) =>
       void insE.run(rodadaId, agora(), tipo, JSON.stringify(dados)),

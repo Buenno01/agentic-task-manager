@@ -14,6 +14,7 @@ services:
       # O processo do agente alcança o MCP pela rede do Compose (ADR-0008).
       ATM_MCP_URL: http://mcp:3100/mcp
       ATM_WORKSPACES_DIR: /data/workspaces
+      ATM_MAX_RODADAS: ${ATM_MAX_RODADAS:-2}
       # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
       ATM_CORS_ORIGIN: ${ATM_CORS_ORIGIN:-}
     ports:
