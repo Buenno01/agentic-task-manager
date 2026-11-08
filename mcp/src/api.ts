@@ -42,7 +42,7 @@ export function criarApi({ apiUrl, token, fetch: f = fetch }: OpcoesApi) {
     eventos: (id: string) => chamar("GET", `/tarefas/${seg(id)}/eventos`),
     checkpoint: (id: string, corpo: Record<string, unknown>) => chamar("POST", `/tarefas/${seg(id)}/checkpoint`, corpo),
     perguntar: (id: string, texto: string) => chamar("POST", `/tarefas/${seg(id)}/perguntar`, { texto }),
-    entregar: (id: string, resumo?: string) => chamar("POST", `/tarefas/${seg(id)}/entregar`, { resumo }),
+    entregar: (id: string, corpo: { resumo?: string; plano?: string; areaPrevista?: string[] } = {}) => chamar("POST", `/tarefas/${seg(id)}/entregar`, corpo),
   };
 }
 export type Api = ReturnType<typeof criarApi>;

@@ -234,7 +234,20 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       );
       if (respBusca) return enviar(respBusca.status, respBusca.corpo);
       const respHistorico = rotaHistorico(
-        { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i) },
+        { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i),
+          aoResponder: (i, a) => {
+            // Só a resposta do humano a uma pergunta do agente devolve a Tarefa ao andamento.
+            const t = repo.obterTarefa(i);
+            if (!humano || !t || t.state !== "Aguardando humano") return;
+            const ultima = repo.listarEventos(i).filter((e) => e.para === "Aguardando humano").at(-1);
+            const retomar = ultima?.tipo === "pedir-humano" ? "retomar" : ultima?.tipo === "aguardar-humano-execucao" ? "retomar-execucao" : undefined;
+            if (!retomar) return;
+            const todos = coment.listar(i);
+            const abertas = todos.filter((c) => c.tipo === "pergunta" && !todos.some((r) => r.respondeA === c.id));
+            if (abertas.length) return;
+            repo.transicionar(i, { autor: a, tipo: retomar, de: t.state, para: t.phase === "Exploração" ? "Explorando" : "Em execução", motivo: "Pergunta respondida" });
+          },
+        },
         metodo, path, quem, corpoJson,
       );
       if (respHistorico) {
@@ -247,6 +260,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
           iniciar: (id, tipo) => orquestrador.iniciar(id, tipo),
           checkpointDoAgente: (rodadaId, dados) => orquestrador.checkpointDoAgente(rodadaId, dados),
           orquestradorConfigurado: !!credenciais.agentes.orquestrador,
+          definirArea: (id, paths, autor, estado) => areaDb.definir(id, paths, autor, estado),
+          decorar: comContexto,
         },
         metodo, path, autor, corpoJson,
       );
