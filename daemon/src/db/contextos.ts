@@ -24,8 +24,10 @@ export function abrirContextos(path: string) {
   `);
   if (!(db.prepare("PRAGMA table_info(contextos)").all() as { name: string }[]).some((c) => c.name === "reference_repositories"))
     db.exec("ALTER TABLE contextos ADD COLUMN reference_repositories TEXT");
+  if (!(db.prepare("PRAGMA table_info(contextos)").all() as { name: string }[]).some((c) => c.name === "delivery_mode"))
+    db.exec("ALTER TABLE contextos ADD COLUMN delivery_mode TEXT");
   const cols =
-    "id, name, kind, parent_id AS parentId, instructions, repository, reference_repositories AS referenceRepositories, test_commands AS testCommands, concurrency_limit AS concurrencyLimit, created_at AS createdAt";
+    "id, name, kind, parent_id AS parentId, instructions, repository, reference_repositories AS referenceRepositories, delivery_mode AS deliveryMode, test_commands AS testCommands, concurrency_limit AS concurrencyLimit, created_at AS createdAt";
   type Row = Omit<Contexto, "testCommands" | "referenceRepositories"> & { testCommands: string | null; referenceRepositories: string | null };
   const paraContexto = (r: Row): Contexto => ({
     ...r,
@@ -34,10 +36,10 @@ export function abrirContextos(path: string) {
   });
   const q = {
     insert: db.prepare(
-      "INSERT INTO contextos (id, name, kind, parent_id, instructions, repository, test_commands, concurrency_limit, created_at, reference_repositories) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO contextos (id, name, kind, parent_id, instructions, repository, test_commands, concurrency_limit, created_at, reference_repositories, delivery_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     ),
     update: db.prepare(
-      "UPDATE contextos SET name=?, kind=?, instructions=?, repository=?, test_commands=?, concurrency_limit=?, reference_repositories=? WHERE id=?",
+      "UPDATE contextos SET name=?, kind=?, instructions=?, repository=?, test_commands=?, concurrency_limit=?, reference_repositories=?, delivery_mode=? WHERE id=?",
     ),
     one: db.prepare(`SELECT ${cols} FROM contextos WHERE id = ?`),
     all: db.prepare(`SELECT ${cols} FROM contextos ORDER BY created_at, rowid`),
@@ -53,12 +55,12 @@ export function abrirContextos(path: string) {
     inserir(c: Contexto) {
       q.insert.run(c.id, c.name, c.kind, c.parentId, c.instructions, c.repository,
         c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit, c.createdAt,
-        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories));
+        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories), c.deliveryMode);
     },
     atualizar(c: Contexto) {
       q.update.run(c.name, c.kind, c.instructions, c.repository,
         c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit,
-        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories), c.id);
+        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories), c.deliveryMode, c.id);
     },
     obter: (id: string): Contexto | undefined => {
       const r = q.one.get(id) as Row | undefined;

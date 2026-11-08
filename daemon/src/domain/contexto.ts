@@ -11,7 +11,12 @@ export interface ConfigContexto {
   referenceRepositories: string[] | null;
   testCommands: string[] | null;
   concurrencyLimit: number | null;
+  /** Como a Execução entrega: `branch-local` (padrão) ou `pr` (GitHub, ADR-0001). */
+  deliveryMode: ModoEntrega | null;
 }
+
+export const MODOS_ENTREGA = ["branch-local", "pr"] as const;
+export type ModoEntrega = (typeof MODOS_ENTREGA)[number];
 
 export interface Contexto extends ConfigContexto {
   id: string;
@@ -67,6 +72,12 @@ function config(e: Entrada): Partial<ConfigContexto> {
     else if (typeof v === "number" && Number.isInteger(v) && v >= 1) out.concurrencyLimit = v;
     else throw new ErroValidacao("concurrencyLimit deve ser um inteiro >= 1");
   }
+  if ("deliveryMode" in e) {
+    const v = e.deliveryMode;
+    if (v === null) out.deliveryMode = null;
+    else if ((MODOS_ENTREGA as readonly unknown[]).includes(v)) out.deliveryMode = v as ModoEntrega;
+    else throw new ErroValidacao(`deliveryMode inválido (use: ${MODOS_ENTREGA.join(", ")})`);
+  }
   return out;
 }
 
@@ -94,6 +105,7 @@ export function novoContexto(e: Entrada): Contexto {
     referenceRepositories: c.referenceRepositories ?? null,
     testCommands: c.testCommands ?? null,
     concurrencyLimit: c.concurrencyLimit ?? null,
+    deliveryMode: c.deliveryMode ?? null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -122,6 +134,7 @@ export function resolverContexto(cadeia: Contexto[]): ContextoResolvido {
     referenceRepositories: null,
     testCommands: null,
     concurrencyLimit: null,
+    deliveryMode: null,
     path: cadeia.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
     instructions: [],
     instructionsText: "",
@@ -131,6 +144,7 @@ export function resolverContexto(cadeia: Contexto[]): ContextoResolvido {
     if (c.referenceRepositories !== null) r.referenceRepositories = c.referenceRepositories;
     if (c.testCommands !== null) r.testCommands = c.testCommands;
     if (c.concurrencyLimit !== null) r.concurrencyLimit = c.concurrencyLimit;
+    if (c.deliveryMode !== null) r.deliveryMode = c.deliveryMode;
     if (c.instructions.trim()) r.instructions.push({ contextId: c.id, name: c.name, text: c.instructions.trim() });
   }
   r.instructionsText = r.instructions.map((i) => i.text).join("\n\n");

@@ -31,6 +31,7 @@ import { abrirRodadas } from "../db/rodadas.ts";
 import { criarRodadas } from "../rodada/executar.ts";
 import { podeRetomar, recuperarInterrompidas } from "../rodada/falha.ts";
 import { rotaRodadas } from "./rodadas.ts";
+import { criarEntrega, type CriarPr } from "../rodada/entrega.ts";
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
@@ -66,6 +67,8 @@ export interface OpcoesDaemon {
   temporizador?: (fn: () => void, ms: number) => () => void;
   /** Mata o processo órfão de uma Rodada interrompida no boot (injetável nos testes). */
   matarProcesso?: (pid: number) => boolean;
+  /** Cria o PR da entrega em modo `pr` (injetável; padrão: push via GIT_ASKPASS + API do GitHub com ATM_GITHUB_TOKEN). */
+  criarPr?: CriarPr;
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -134,6 +137,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
     return { repositorio: r?.repository ?? null, consulta: r?.referenceRepositories ?? [] };
   };
+  const entregar = criarEntrega({ criarPr: opts.criarPr });
   const rodadasCtl = criarRodadas({
     repo,
     rodadas: rodadasDb,
@@ -262,6 +266,11 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
           orquestradorConfigurado: !!credenciais.agentes.orquestrador,
           definirArea: (id, paths, autor, estado) => areaDb.definir(id, paths, autor, estado),
           decorar: comContexto,
+          entregarExecucao: (p) => {
+            const c = ctx.obter(ctx.contextoDaTarefa(p.tarefaId) ?? "");
+            const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
+            return entregar({ ...p, repositorio: r?.repository ?? null, modo: r?.deliveryMode ?? null });
+          },
         },
         metodo, path, autor, corpoJson,
       );
