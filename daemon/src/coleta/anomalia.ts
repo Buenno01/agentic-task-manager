@@ -19,12 +19,14 @@ export function detectarAnomalias(
   limiares: Limiares,
   agoraMs: number,
   timezone: string,
+  /** Se dado, só estes períodos são avaliados (os que a Coleta acabou de coletar). */
+  apenasPeriodos?: readonly string[],
 ): EntradaAnomalia[] {
   const hoje = dataNoFuso(agoraMs, timezone).data;
   const porPeriodo = new Map(snapshots.map((s) => [s.period, s]));
   const out: EntradaAnomalia[] = [];
   for (const s of snapshots) {
-    if (s.period >= hoje) continue;
+    if (s.period >= hoje || (apenasPeriodos !== undefined && !apenasPeriodos.includes(s.period))) continue;
     const anteriores = Array.from({ length: OCORRENCIAS_BASE }, (_, i) => porPeriodo.get(somarDias(s.period, -7 * (i + 1))));
     if (anteriores.some((a) => !a)) continue;
     const media = (m: Metrica): number | null => {

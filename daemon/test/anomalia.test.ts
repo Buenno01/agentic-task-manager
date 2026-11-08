@@ -125,9 +125,9 @@ test("o dia corrente nunca é avaliado", async () => {
   agoraMs = Date.parse("2026-03-02T12:00:00Z"); // ALVO passa a ser o dia corrente
   await semear(c, metricas(20), metricas(1));
   assert.deepEqual(await anomalias(c.id), []);
-  agoraMs = Date.parse("2026-03-03T12:00:00Z"); // no dia seguinte ele já está fechado: a recoleta o avalia
+  agoraMs = Date.parse("2026-03-03T12:00:00Z"); // no dia seguinte ele já está fechado: recoletá-lo o avalia
   cliente.definir(ALVO, { moeda: "BRL", metricas: metricas(10) });
-  await coletar(c.id, "2026-03-03");
+  await coletar(c.id, ALVO);
   assert.equal((await anomalias(c.id)).length, 1);
 });
 

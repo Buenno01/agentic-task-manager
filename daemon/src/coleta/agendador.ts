@@ -1,6 +1,6 @@
 import { agendaDoColetor, BACKFILL_DIAS, somarDias, ultimoPeriodoDevido } from "../domain/agenda.ts";
-import type { DepsColetas } from "../api/coletas.ts";
-import { recolher } from "../api/recoleta.ts";
+import type { DepsColetas } from "./deps.ts";
+import { recolher } from "./recoleta.ts";
 
 export interface OpcoesAgendador {
   /** Agenda a varredura periódica e devolve o cancelamento. Injetável: os testes não esperam timers. */
@@ -39,14 +39,22 @@ export function criarAgendador(d: DepsColetas, opcoes: OpcoesAgendador = {}) {
 
   async function varrerColetor(coletorId: string, agoraMs: number) {
     const coletor = d.store.obterColetor(coletorId)!;
-    if (coletor.frequency !== "diaria") return;
     const ultimo = ultimoPeriodoDevido(agoraMs, agendaDoColetor(coletor.params));
-    for (let i = BACKFILL_DIAS - 1; i >= 0 && !parando; i--) {
+    const nova = cobertos(coletorId).size === 0; // Coletor sem nenhuma Coleta: tudo o que vier é histórico
+    const devidos: string[] = [];
+    for (let i = BACKFILL_DIAS - 1; i >= 0; i--) {
       const periodo = somarDias(ultimo, -i);
-      // Reconsulta a cada período: outro processo (ou uma Coleta manual) pode tê-lo coberto.
+      if (!cobertos(coletorId).has(periodo)) devidos.push(periodo);
+    }
+    // Só a última Coleta da varredura recoleta a janela e as Lacunas abertas; as anteriores coletam o próprio dia
+    // (cada dia é buscado ~uma vez). Anomalia só para dias recentes de um Coletor que já tinha histórico.
+    const recentes = somarDias(ultimo, -(coletor.recollectWindowDays - 1));
+    for (const [i, periodo] of devidos.entries()) {
+      if (parando) return;
+      // Reconsulta: outro processo (ou uma Coleta manual) pode ter coberto o período durante a varredura.
       if (cobertos(coletorId).has(periodo)) continue;
       const coleta = d.store.iniciarColeta(coletorId, periodo, new Date(d.relogio()));
-      await recolher(d, coleta.id);
+      await recolher(d, coleta.id, { soPeriodo: i < devidos.length - 1, semAnomalias: nova || periodo < recentes });
     }
   }
 

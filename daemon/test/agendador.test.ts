@@ -70,7 +70,10 @@ test("primeira Coleta de um Coletor faz backfill de 90 dias, sem esperas reais",
   assert.equal(ps[0], "2025-12-10");
   assert.equal(ps[89], "2026-03-09");
   const snaps = await json(d, "GET", `/coletores/${id}/consolidado`);
-  assert.equal(snaps.length, 96 * 4); // recolher também recoleta a janela (6 dias antes do 1º período)
+  assert.equal(snaps.length, 90 * 4); // cada dia entra uma vez; só a última Coleta recoleta a janela (já coberta)
+  // Backfill de 90 dias custa ~90 buscas (89 dias soltos + a janela de 7 da última Coleta), não ~630.
+  assert.equal(cliente.pedidos.length, 89 + 7);
+  assert.equal(new Set(cliente.pedidos.map((p) => p.period)).size, 90);
   // Outra varredura no mesmo instante não repete nada.
   await d.varrerColetas();
   assert.equal((await periodos(d, id)).length, 90);
@@ -111,8 +114,8 @@ test("Coletas atrasadas rodam no boot sem duplicar as que já rodaram", async ()
   const id = await novoColetor(d);
   await d.varrerColetas();
   await fechar(d);
-  const chamadas = new Set(cliente.pedidos.map((p) => p.period)).size; // recolher refaz a janela: conta períodos, não chamadas
-  assert.equal(chamadas, 96); // 90 períodos + 6 da janela de recoleta
+  const chamadas = new Set(cliente.pedidos.map((p) => p.period)).size; // a última Coleta refaz a janela: conta períodos, não chamadas
+  assert.equal(chamadas, 90);
 
   agoraMs = Date.parse("2026-03-13T12:00:00Z"); // daemon ficou fora 3 dias
   d = await iniciar();
@@ -121,7 +124,7 @@ test("Coletas atrasadas rodam no boot sem duplicar as que já rodaram", async ()
   assert.equal(ps.length, 93);
   assert.equal(new Set(ps).size, 93);
   assert.deepEqual(ps.slice(-4), ["2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12"]);
-  assert.equal(new Set(cliente.pedidos.map((p) => p.period)).size, 96 + 3);
+  assert.equal(new Set(cliente.pedidos.map((p) => p.period)).size, 90 + 3);
 });
 
 test("reiniciar no meio de uma Coleta não deixa estado inconsistente nem duplica dados", async () => {

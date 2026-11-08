@@ -1,38 +1,26 @@
-import type { ArmazemColetas } from "../db/coletas.ts";
-import type { ArmazemAnomalias, Anomalia } from "../db/anomalias.ts";
+import type { DepsColetas } from "../coleta/deps.ts";
+import { agendaDoColetor } from "../domain/agenda.ts";
+import { METRICAS, chaveDeProduto, ehMetricaDeSnapshot, lerChaveDeProduto, periodoDaColeta, validarColetor } from "../domain/coleta.ts";
+import { recolher } from "../coleta/recoleta.ts";
 import { rotaAnomalias } from "./anomalias.ts";
-import type { Coletor } from "../domain/coleta.ts";
-import type { CategoriaFalha } from "../coleta/falha-humana.ts";
-import type { ClienteColeta } from "../coleta/cliente.ts";
-import type { ArmazemRevisoes } from "../db/revisoes.ts";
-import { METRICAS, ehMetricaDeSnapshot, periodoDaColeta, validarColetor } from "../domain/coleta.ts";
-import type { Mascarador } from "../seguranca/mascarador.ts";
-import { recolher } from "./recoleta.ts";
 import { rotaRevisoes } from "./revisoes.ts";
 import type { Resposta } from "./contextos.ts";
 
 const ok = (corpo: unknown, status = 200): Resposta => ({ status, corpo });
-const naoEncontrado: Resposta = { status: 404, corpo: { error: "Não encontrado" } };
+export const naoEncontrado: Resposta = { status: 404, corpo: { error: "Não encontrado" } };
 
-export interface DepsColetas {
-  store: ArmazemColetas;
-  revisoes: ArmazemRevisoes;
-  anomalias: ArmazemAnomalias;
-  /**
-   * Gancho dos tickets 07/08: chamado uma vez por Anomalia NOVA (reavaliação não repete), logo após persisti-la.
-   * Nunca deve lançar; se lançar, a Coleta não é afetada.
-   */
-  aoDetectarAnomalia?: (anomalia: Anomalia, coletor: Coletor) => void;
-  /** Gancho do ticket 08: chamado pelo agendador após a varredura de cada Coletor (fechamento de período). Nunca deve lançar. */
-  aoVarrerColetor?: (coletor: Coletor) => void;
-  /** Ticket 07: falha que exige ação humana (uma vez por categoria e Coleta). Não deve lançar. */
-  aoFalharComAcaoHumana?: (falha: { coletor: Coletor; categoria: CategoriaFalha; period: string; mensagem: string; agora: Date }) => void;
-  cliente: ClienteColeta;
-  relogio: () => number;
-  mascarador: Mascarador;
-  contextoExiste: (id: string) => boolean;
-  /** Execuções em voo, para o daemon aguardar no close(). */
-  emVoo: Set<Promise<void>>;
+/** GET /coletores/:id/<sufixos> (alternativas separadas por `|`): 404 se o Coletor não existe, senão `ler(id, sufixo)`. */
+export function rotaLeituraDoColetor(
+  d: DepsColetas,
+  metodo: string,
+  path: string,
+  sufixos: string,
+  ler: (coletorId: string, sufixo: string) => unknown,
+): Resposta | undefined {
+  const m = path.match(new RegExp(`^/coletores/([^/]+)/(${sufixos})$`));
+  if (!m || metodo !== "GET") return undefined;
+  if (!d.store.obterColetor(m[1])) return naoEncontrado;
+  return ok(ler(m[1], m[2]));
 }
 
 /** Quebra por produto: unidades e receita de cada produto por período (só produtos presentes no Snapshot). */
@@ -40,14 +28,14 @@ function quebraPorProduto(snapshots: { period: string; payload: Record<string, n
   return snapshots.flatMap((s) => {
     const ids = new Set<string>();
     for (const k of Object.keys(s.payload)) {
-      const m = k.match(/^produto:(\d+):(unidades|receita)$/);
-      if (m) ids.add(m[1]);
+      const p = lerChaveDeProduto(k);
+      if (p) ids.add(p.id);
     }
     return [...ids].map((productId) => ({
       period: s.period,
       productId,
-      units: s.payload[`produto:${productId}:unidades`] ?? null,
-      revenue: s.payload[`produto:${productId}:receita`] ?? null,
+      units: s.payload[chaveDeProduto(productId, "unidades")] ?? null,
+      revenue: s.payload[chaveDeProduto(productId, "receita")] ?? null,
     }));
   });
 }
@@ -100,7 +88,7 @@ export function rotaColetas(
     }
     if (metodo === "POST" && sub === "coletas")
       return corpo().then((e) => {
-        const coleta = store.iniciarColeta(id, periodoDaColeta(e.period, d.relogio()), new Date(d.relogio()));
+        const coleta = store.iniciarColeta(id, periodoDaColeta(e.period, d.relogio(), agendaDoColetor(coletor.params).timezone), new Date(d.relogio()));
         const p: Promise<void> = recolher(d, coleta.id).finally(() => d.emVoo.delete(p));
         d.emVoo.add(p);
         return ok(coleta, 202);

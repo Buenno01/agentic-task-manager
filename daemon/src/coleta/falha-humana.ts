@@ -23,6 +23,10 @@ export const CATEGORIAS = {
     titulo: "analytics indisponível (plano ou escopo)",
     orientacao: "O plano da loja ou os escopos do app não permitem ler sessões e conversão (ShopifyQL). Habilite o escopo read_reports ou o plano necessário; até lá sessões e conversão ficam ausentes.",
   },
+  "token-ausente": {
+    titulo: "variável de ambiente do token não definida",
+    orientacao: "Defina no ambiente do daemon a variável indicada em tokenEnv do Coletor (só o nome fica guardado) e reinicie o daemon.",
+  },
 } as const;
 
 export type CategoriaFalha = keyof typeof CATEGORIAS;
@@ -61,7 +65,7 @@ export function textoDaTarefa(
 }
 
 export interface DepsFalhaHumana {
-  armazem: { vincular(coletorId: string, categoria: string, tarefaId: string, agora: Date): void; ultimaTarefa(coletorId: string, categoria: string): string | undefined };
+  armazem: { vincular(coletorId: string, categoria: CategoriaFalha, tarefaId: string, agora: Date): void; ultimaTarefa(coletorId: string, categoria: CategoriaFalha): string | undefined };
   obterTarefa(id: string): { state: string } | undefined;
   criarTarefa(contextId: string, titulo: string, descricao: string): string;
   registrarEvento(tarefaId: string, ev: { autor: string; tipo: string; motivo: string }): void;

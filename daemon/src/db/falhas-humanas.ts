@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { CategoriaFalha } from "../coleta/falha-humana.ts";
 
 /** Elo (Coletor, categoria) → Tarefa criada pela falha. A mais recente do par é a que vale para o dedup. */
 export function abrirFalhasHumanas(path: string) {
@@ -16,8 +17,8 @@ export function abrirFalhasHumanas(path: string) {
   const ins = db.prepare("INSERT INTO falhas_humanas (coletor_id, categoria, tarefa_id, created_at) VALUES (?, ?, ?, ?)");
   const ult = db.prepare("SELECT tarefa_id FROM falhas_humanas WHERE coletor_id = ? AND categoria = ? ORDER BY seq DESC LIMIT 1");
   return {
-    vincular: (coletorId: string, categoria: string, tarefaId: string, agora: Date) => void ins.run(coletorId, categoria, tarefaId, agora.toISOString()),
-    ultimaTarefa: (coletorId: string, categoria: string): string | undefined =>
+    vincular: (coletorId: string, categoria: CategoriaFalha, tarefaId: string, agora: Date) => void ins.run(coletorId, categoria, tarefaId, agora.toISOString()),
+    ultimaTarefa: (coletorId: string, categoria: CategoriaFalha): string | undefined =>
       (ult.get(coletorId, categoria) as { tarefa_id: string } | undefined)?.tarefa_id,
     close: () => db.close(),
   };

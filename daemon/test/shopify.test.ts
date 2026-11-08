@@ -1,9 +1,10 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, type Daemon } from "../src/api/server.ts";
+import { esperaDoRetryAfter } from "../src/coleta/shopify.ts";
 import { criarShopifyFalso, type ShopifyFalso } from "../src/coleta/shopify-falso.ts";
 import { CRED, HUMANO, comToken } from "./helpers.ts";
 
@@ -252,4 +253,54 @@ test("Coletor Shopify exige a loja nos params", async () => {
   assert.equal(res.status, 400);
   const res2 = await send("POST", "/coletores", { contextId: ctx, source: "shopify", tokenEnv: VAR_TOKEN, params: { shop: "https://evil.example.com/x" } });
   assert.equal(res2.status, 400);
+});
+
+test("Retry-After também vale para 5xx", async () => {
+  pedidosDoDia();
+  loja.cenas.push({ status: 503, headers: { "retry-after": "5" }, body: "indisponível" });
+  const c = await novoColetor();
+  assert.equal((await coletar(c.id, DIA)).state, "concluída");
+  assert.deepEqual(dormidas, [5000]);
+});
+
+test("Retry-After em data HTTP é convertido pela diferença para o relógio", async () => {
+  assert.equal(esperaDoRetryAfter("Tue, 10 Mar 2026 12:00:09 GMT", Date.parse("2026-03-10T12:00:00Z")), 9000);
+  assert.equal(esperaDoRetryAfter("Tue, 10 Mar 2026 11:00:00 GMT", Date.parse("2026-03-10T12:00:00Z")), 0);
+  assert.equal(esperaDoRetryAfter("abc", 0), undefined);
+  assert.equal(esperaDoRetryAfter(undefined, 0), undefined);
+});
+
+test("esperas do servidor são limitadas a 60 s (Retry-After e custo GraphQL)", async () => {
+  pedidosDoDia();
+  loja.cenas.push({ status: 429, headers: { "retry-after": "86400" }, body: {} });
+  loja.porPagina = 1;
+  loja.custo = { requestedQueryCost: 100000, currentlyAvailable: 0, restoreRate: 1 };
+  const c = await novoColetor();
+  assert.equal((await coletar(c.id, DIA)).state, "concluída");
+  assert.ok(dormidas.length >= 2);
+  assert.ok(dormidas.every((ms) => ms <= 60_000), JSON.stringify(dormidas));
+  assert.equal(dormidas[0], 60_000);
+});
+
+test("em erro, a resposta crua (mascarada) vai para o disco de logs; sucesso não grava nada", async () => {
+  pedidosDoDia();
+  const c = await novoColetor();
+  await coletar(c.id, DIA);
+  assert.equal(existsSync(join(dir, "logs", "coletas")), false);
+  for (let i = 0; i < 3; i++) loja.cenas.push({ status: 500, headers: {}, body: `falha ecoando ${TOKEN}` });
+  const coleta = await coletar(c.id, DIA);
+  assert.equal(coleta.state, "falhou");
+  const arq = join(dir, "logs", "coletas", coleta.id, `${DIA}.txt`);
+  const texto = readFileSync(arq, "utf8");
+  assert.match(texto, /falha ecoando/);
+  assert.ok(!texto.includes(TOKEN));
+});
+
+test("disco de logs sem permissão não derruba a Coleta", async () => {
+  writeFileSync(join(dir, "logs"), "arquivo no lugar do diretório"); // mkdir de logs/coletas falha
+  for (let i = 0; i < 3; i++) loja.cenas.push({ status: 500, headers: {}, body: "erro cru" });
+  const c = await novoColetor();
+  const coleta = await coletar(c.id, DIA);
+  assert.equal(coleta.state, "falhou");
+  assert.match(coleta.error, /503|500/);
 });

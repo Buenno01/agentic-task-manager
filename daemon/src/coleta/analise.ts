@@ -1,7 +1,7 @@
 import { novaTarefa } from "../domain/tarefa.ts";
 import { resolverContexto } from "../domain/contexto.ts";
 import { agendaDoColetor } from "../domain/agenda.ts";
-import { fechamentosPendentes, frequenciaDeFechamento, type Fechamento } from "../domain/fechamento.ts";
+import { fechamentosPendentes, frequenciaDeFechamento, ultimoFechamento, type Fechamento } from "../domain/fechamento.ts";
 import type { Coletor } from "../domain/coleta.ts";
 import type { Anomalia } from "../db/anomalias.ts";
 import type { ArmazemAnalises } from "../db/analise.ts";
@@ -96,12 +96,21 @@ export function criarAnalise(d: DepsAnalise) {
         console.error(`Falha ao criar a análise de Anomalia (${coletor.id}):`, e instanceof Error ? e.message : e);
       }
     },
-    /** Processa os fechamentos de período devidos (inclusive os perdidos com a máquina desligada). */
-    fechar(coletor: Coletor) {
+    /**
+     * Processa os fechamentos de período devidos (inclusive os perdidos com a máquina desligada, sem teto), todos
+     * como evidência da mesma Tarefa de análise aberta. Na primeira passagem do Coletor só marca o último
+     * fechamento já ocorrido: só valem os fechamentos posteriores à existência do Coletor.
+     */
+    processarFechamentos(coletor: Coletor) {
       const frequencia = frequenciaDeFechamento(coletor.params);
       if (frequencia === "nenhum") return;
       const { timezone } = agendaDoColetor(coletor.params);
-      for (const f of fechamentosPendentes(d.relogio(), timezone, frequencia, d.analises.ultimoFechamento(coletor.id))) {
+      const ultima = d.analises.ultimoFechamento(coletor.id);
+      if (ultima === undefined) {
+        d.analises.registrarFechamento(coletor.id, ultimoFechamento(d.relogio(), timezone, frequencia).chave, new Date(d.relogio()));
+        return;
+      }
+      for (const f of fechamentosPendentes(d.relogio(), timezone, frequencia, ultima)) {
         anexar(coletor, textoFechamento(f));
         d.analises.registrarFechamento(coletor.id, f.chave, new Date(d.relogio()));
       }
