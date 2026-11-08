@@ -42,6 +42,7 @@ import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOr
 import { abrirColetas } from "../db/coletas.ts";
 import { rotaColetas } from "./coletas.ts";
 import { abrirRevisoes } from "../db/revisoes.ts";
+import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
 import { clienteNaoConfigurado, type ClienteColeta } from "../coleta/cliente.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -49,6 +50,8 @@ export interface Daemon {
   url: string;
   /** Uma varredura do orquestrador (aguarda terminar); no-op se desligado. */
   varrer(): Promise<void>;
+  /** Uma varredura do agendador de Coletas (aguarda terminar); no-op se desligado. */
+  varrerColetas(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -83,7 +86,7 @@ export interface OpcoesDaemon {
   /** Token do GitHub (padrão: ATM_GITHUB_TOKEN); só entra em Rodadas de Execução, via GIT_ASKPASS. */
   githubToken?: string;
   /** Coleta de métricas (Monitoramento): cliente da fonte e relógio (ms), injetáveis nos testes. */
-  coleta?: { cliente?: ClienteColeta; relogio?: () => number };
+  coleta?: { cliente?: ClienteColeta; relogio?: () => number; agendador?: OpcoesAgendador };
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -159,6 +162,9 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     contextoExiste: (i: string) => !!ctx.obter(i),
     emVoo: new Set<Promise<void>>(),
   };
+  // Agendador das Coletas diárias (opt-in); a primeira varredura é a recuperação do boot.
+  const agendador = opts.coleta?.agendador ? criarAgendador(coletasDeps, opts.coleta.agendador) : undefined;
+  void agendador?.varrer();
   let urlDaemon = "";
   let orq: Orquestrador | undefined;
   const workspacesDir = opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces";
@@ -455,7 +461,9 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       resolve({
         url: urlDaemon,
         varrer: async () => void (await orq?.varrer()),
+        varrerColetas: async () => void (await agendador?.varrer()),
         close: async () => {
+          agendador?.parar();
           await orq?.parar();
           await rodadasCtl.encerrar();
           await Promise.allSettled([...coletasDeps.emVoo]);

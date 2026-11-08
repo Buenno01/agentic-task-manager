@@ -32,5 +32,5 @@ if (nomeExecutor && nomeExecutor !== "hermes") {
   process.exit(1);
 }
 const executor = nomeExecutor === "hermes" ? criarExecutorHermes(opcoesHermesDoAmbiente()) : undefined;
-const daemon = await startDaemon({ dbPath, port, host, credenciais, corsOrigins, executor });
+const daemon = await startDaemon({ dbPath, port, host, credenciais, corsOrigins, executor, coleta: { agendador: {} } });
 console.log(`Daemon ouvindo em ${daemon.url} (banco: ${dbPath})`);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { ErroValidacao } from "./tarefa.ts";
+import { agendaDoColetor } from "./agenda.ts";
 
 /** Fontes de dados conhecidas. Contrato simples, sem plataforma de plugins (ADR-0003). */
 export const FONTES = ["falso"] as const;
@@ -45,6 +46,7 @@ export function validarColetor(e: Record<string, unknown>, contextoExiste: (id: 
     throw new ErroValidacao("tokenEnv deve ser o nome de uma variável de ambiente (ex.: ATM_LOJA_TOKEN), nunca o valor do token");
   const params = e.params ?? {};
   if (!params || typeof params !== "object" || Array.isArray(params)) throw new ErroValidacao("params deve ser um objeto");
+  agendaDoColetor(params as Record<string, unknown>);
   const janela = e.recollectWindowDays ?? 7;
   if (typeof janela !== "number" || !Number.isInteger(janela) || janela < 1) throw new ErroValidacao("recollectWindowDays deve ser inteiro ≥ 1");
   const auto = e.automaticAnalysis ?? false;
