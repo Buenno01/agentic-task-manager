@@ -43,6 +43,16 @@ export function criarApi({ apiUrl, token, fetch: f = fetch }: OpcoesApi) {
     checkpoint: (id: string, corpo: DadosCheckpointMcp) => chamar("POST", `/tarefas/${seg(id)}/checkpoint`, corpo),
     perguntar: (id: string, texto: string) => chamar("POST", `/tarefas/${seg(id)}/perguntar`, { texto }),
     entregar: (id: string, corpo: { resumo?: string; plano?: string; areaPrevista?: string[] } = {}) => chamar("POST", `/tarefas/${seg(id)}/entregar`, corpo),
+    // Monitoramento: somente leitura (ADR-0001, ADR-0005). Nenhum método de escrita sobre Coletor ou Coleta.
+    coletores: () => chamar("GET", "/coletores"),
+    coletor: (id: string) => chamar("GET", `/coletores/${seg(id)}`),
+    coletas: (coletorId: string) => chamar("GET", `/coletores/${seg(coletorId)}/coletas`),
+    coleta: (id: string) => chamar("GET", `/coletas/${seg(id)}`),
+    lacunas: (coletorId: string) => chamar("GET", `/coletores/${seg(coletorId)}/lacunas`),
+    revisoes: (coletorId: string) => chamar("GET", `/coletores/${seg(coletorId)}/revisoes`),
+    anomalias: (coletorId: string) => chamar("GET", `/coletores/${seg(coletorId)}/anomalias`),
+    serie: (coletorId: string, metrica: string) => chamar("GET", `/coletores/${seg(coletorId)}/series/${seg(metrica)}`),
+    produtos: (coletorId: string) => chamar("GET", `/coletores/${seg(coletorId)}/produtos`),
   };
 }
 export type Api = ReturnType<typeof criarApi>;

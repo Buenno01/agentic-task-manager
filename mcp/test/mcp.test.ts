@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startDaemon, type Daemon } from "../../daemon/src/api/server.ts";
 import { iniciarMcpHttp, type McpHttp } from "../src/http.ts";
+import { criarClienteFalso, type ClienteFalso } from "../../daemon/src/coleta/falso.ts";
 
 const HUMANO = "tok-humano";
 const AGENTE = "tok-agente";
@@ -15,13 +16,19 @@ let mcp: McpHttp;
 let dir: string;
 let client: Client;
 let tokensVistos: (string | undefined)[];
+let cliente: ClienteFalso;
+const VAR_TOKEN = "ATM_MCP_COLETOR_TOKEN";
 
 beforeEach(async () => {
+  process.env[VAR_TOKEN] = "segredo-do-coletor-mcp-0123456789";
+  cliente = criarClienteFalso();
   dir = mkdtempSync(join(tmpdir(), "atm-mcp-"));
   daemon = await startDaemon({
     dbPath: join(dir, "atm.db"),
     port: 0,
     credenciais: { humano: HUMANO, agentes: { "agente-a": AGENTE } },
+    logsDir: join(dir, "logs"),
+    coleta: { cliente, relogio: () => Date.parse("2026-03-10T12:00:00Z") },
   });
   tokensVistos = [];
   const fetchEspiao: typeof fetch = (input, init) => {
@@ -38,6 +45,7 @@ afterEach(async () => {
   await client.close();
   await mcp.close();
   await daemon.close();
+  delete process.env[VAR_TOKEN];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -54,9 +62,67 @@ async function chamar(name: string, args: Record<string, unknown>) {
   return { erro: !!r.isError, texto, json: () => JSON.parse(texto) };
 }
 
-test("expõe só ferramentas de leitura/criação/entrega, nenhuma de aprovação ou transição", async () => {
+test("expõe só ferramentas de leitura/criação/entrega, nenhuma de aprovação, transição ou escrita de Coleta", async () => {
   const nomes = (await client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(nomes, ["buscar", "checkpoint", "comentar", "criar_subtarefa", "criar_tarefa", "entregar", "ler_contexto", "ler_tarefa", "perguntar"]);
+  assert.deepEqual(nomes, [
+    "buscar", "checkpoint", "comentar", "criar_subtarefa", "criar_tarefa", "entregar",
+    "ler_anomalias", "ler_coleta", "ler_coletor", "ler_contexto", "ler_lacunas", "ler_produtos", "ler_revisoes", "ler_serie", "ler_tarefa",
+    "listar_coletas", "listar_coletores", "perguntar",
+  ]);
+});
+
+async function coletar(coletorId: string, period: string) {
+  const res = await humano("POST", `/coletores/${coletorId}/coletas`, { period });
+  const { id } = (await res.json()) as { id: string };
+  for (let i = 0; i < 200; i++) {
+    const c = (await (await humano("GET", `/coletas/${id}`)).json()) as { state: string };
+    if (c.state !== "em andamento") return id;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.fail("Coleta não terminou");
+}
+
+async function semearAnomalia() {
+  const ctx = (await (await humano("POST", "/contextos", { name: "Loja", kind: "loja" })).json()) as { id: string };
+  const c = (await (await humano("POST", "/coletores", { contextId: ctx.id, source: "falso", tokenEnv: VAR_TOKEN, recollectWindowDays: 1 })).json()) as { id: string };
+  const m = (orders: number) => ({ orders, netRevenue: 1000, averageTicket: 50, conversion: 2, "produto:7:unidades": orders, "produto:7:receita": orders * 50 });
+  for (const p of ["2026-02-02", "2026-02-09", "2026-02-16", "2026-02-23"]) {
+    cliente.definir(p, { moeda: "BRL", metricas: m(20) });
+    await coletar(c.id, p);
+  }
+  cliente.definir("2026-03-02", { moeda: "BRL", metricas: m(10) });
+  const coletaId = await coletar(c.id, "2026-03-02");
+  return { coletorId: c.id, coletaId };
+}
+
+test("agente de análise lê Coletores, Coletas, Anomalias, séries e quebra por produto só pelo MCP", async () => {
+  const { coletorId, coletaId } = await semearAnomalia();
+  assert.equal((await chamar("listar_coletores", {})).json().length, 1);
+  assert.equal((await chamar("ler_coletor", { coletorId })).json().id, coletorId);
+  assert.equal((await chamar("listar_coletas", { coletorId })).json().length, 5);
+  assert.equal((await chamar("ler_coleta", { coletaId })).json().id, coletaId);
+  const anomalias = (await chamar("ler_anomalias", { coletorId })).json();
+  assert.equal(anomalias.length, 1);
+  assert.equal(anomalias[0].metric, "orders");
+  assert.equal(anomalias[0].variation, -50);
+  const serie = (await chamar("ler_serie", { coletorId, metrica: "orders" })).json();
+  assert.equal(serie.find((p: { period: string }) => p.period === "2026-03-02").value, 10);
+  const produtos = (await chamar("ler_produtos", { coletorId })).json();
+  assert.deepEqual(produtos.find((p: { period: string }) => p.period === "2026-03-02"), { period: "2026-03-02", productId: "7", units: 10, revenue: 500 });
+  assert.deepEqual((await chamar("ler_lacunas", { coletorId })).json(), []);
+  assert.ok(Array.isArray((await chamar("ler_revisoes", { coletorId })).json()));
+  assert.match((await chamar("ler_coletor", { coletorId: "nada" })).texto, /404/);
+});
+
+test("com o que leu, o agente cria uma Tarefa Novo com evidências", async () => {
+  const { coletorId } = await semearAnomalia();
+  const [a] = (await chamar("ler_anomalias", { coletorId })).json();
+  const t = (await chamar("criar_tarefa", {
+    title: "Investigar queda de pedidos",
+    description: `Anomalia ${a.id}: ${a.metric} em ${a.period}, valor ${a.value} contra base ${a.base} (${a.variation}%).`,
+  })).json();
+  assert.equal(t.state, "Novo");
+  assert.match((await chamar("ler_tarefa", { id: t.id })).json().tarefa.description, /orders em 2026-03-02, valor 10 contra base 20/);
 });
 
 test("perguntar e entregar repassam a API; checkpoint sem Rodada é recusado; aprovar continua do humano", async () => {

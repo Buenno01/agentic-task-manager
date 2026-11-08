@@ -35,6 +35,23 @@ export interface DepsColetas {
   emVoo: Set<Promise<void>>;
 }
 
+/** Quebra por produto: unidades e receita de cada produto por período (só produtos presentes no Snapshot). */
+function quebraPorProduto(snapshots: { period: string; payload: Record<string, number | null> }[]) {
+  return snapshots.flatMap((s) => {
+    const ids = new Set<string>();
+    for (const k of Object.keys(s.payload)) {
+      const m = k.match(/^produto:(\d+):(unidades|receita)$/);
+      if (m) ids.add(m[1]);
+    }
+    return [...ids].map((productId) => ({
+      period: s.period,
+      productId,
+      units: s.payload[`produto:${productId}:unidades`] ?? null,
+      revenue: s.payload[`produto:${productId}:receita`] ?? null,
+    }));
+  });
+}
+
 /** Rotas /coletores*, /coletas/:id e /snapshots/:id. Devolve undefined quando a rota não é daqui. */
 export function rotaColetas(
   d: DepsColetas,
@@ -45,6 +62,8 @@ export function rotaColetas(
   negado: Resposta,
 ): Promise<Resposta> | Resposta | undefined {
   const { store } = d;
+  // Escrita sobre Coletor ou Coleta é só do humano (ADR-0001, ADR-0005): o agente recebe 403 em qualquer método que não leia.
+  if (!humano && metodo !== "GET" && /^\/(coletores|coletas)(\/|$)/.test(path)) return negado;
   if (path === "/coletores") {
     if (metodo === "GET") return ok(store.listarColetores());
     if (metodo === "POST") {
@@ -57,7 +76,7 @@ export function rotaColetas(
   if (respRevisoes) return respRevisoes;
   const respAnomalias = rotaAnomalias(d, metodo, path);
   if (respAnomalias) return respAnomalias;
-  const mc = path.match(/^\/coletores\/([^/]+)(?:\/(coletas|consolidado)|\/series\/([^/]+))?$/);
+  const mc = path.match(/^\/coletores\/([^/]+)(?:\/(coletas|consolidado|produtos)|\/series\/([^/]+))?$/);
   if (mc) {
     const [, id, sub, metrica] = mc;
     if (metodo === "POST" && sub === "coletas" && !humano) return negado;
@@ -73,6 +92,7 @@ export function rotaColetas(
           return nomes.map((m) => ({ period: s.period, metric: m, value: s.payload[m] ?? null, currency: s.currency, snapshotId: s.id }));
         }),
       );
+    if (metodo === "GET" && sub === "produtos") return ok(quebraPorProduto(store.maisRecentes(id)));
     if (metodo === "GET" && metrica) {
       const nome = decodeURIComponent(metrica);
       if (!ehMetricaDeSnapshot(nome)) return naoEncontrado;
