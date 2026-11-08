@@ -1,18 +1,16 @@
-import { execFile } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { promisify } from "node:util";
 import type { ArmazemRodadas, Rodada } from "../db/rodadas.ts";
 import type { Repositorio } from "../db/index.ts";
 import type { Executor, EventoExecutor, TipoRodada } from "../executor/executor.ts";
-
-const git = promisify(execFile);
+import { ErroValidacao } from "../domain/tarefa.ts";
+import { ErroWorkspace, type Workspaces } from "../workspace/workspace.ts";
 
 export interface DepsRodada {
   repo: Repositorio;
   rodadas: ArmazemRodadas;
   executor: Executor;
-  workspacesDir: string;
+  workspaces: Workspaces;
+  /** Repositório principal e de consulta da Tarefa (vêm do Contexto). */
+  reposDaTarefa: (tarefaId: string) => { repositorio: string | null; consulta: string[] };
   mcpUrl: string;
   /** Token do agente `orquestrador` (nunca o humano). */
   tokenAgente: string;
@@ -28,18 +26,18 @@ const AUTOR = "agente:orquestrador";
 export function criarRodadas(d: DepsRodada) {
   const ativas = new Map<string, { abort: AbortController; fim: Promise<void> }>();
 
-  async function prepararWorkspace(rodadaId: string): Promise<string> {
-    // Placeholder do ticket 01: repositório git vazio por Rodada; o worktree real vem no ticket 03.
-    const dir = join(d.workspacesDir, rodadaId);
-    mkdirSync(dir, { recursive: true });
-    await git("git", ["init", "-q"], { cwd: dir });
-    await git("git", ["-c", "user.name=atm", "-c", "user.email=atm@atm.local", "commit", "-q", "--allow-empty", "-m", "início"], { cwd: dir });
-    return dir;
+  async function prepararWorkspace(tarefaId: string, tipo: TipoRodada): Promise<string> {
+    try {
+      return (await d.workspaces.preparar({ tarefaId, tipo, ...d.reposDaTarefa(tarefaId) })).dir;
+    } catch (e) {
+      if (e instanceof ErroWorkspace) throw new ErroValidacao(e.message);
+      throw e;
+    }
   }
 
   return {
     async iniciar(tarefaId: string, tipo: TipoRodada): Promise<Rodada> {
-      const workspace = await prepararWorkspace(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+      const workspace = await prepararWorkspace(tarefaId, tipo);
       const rodada = d.rodadas.criar({ tarefaId, tipo, workspace });
       d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-iniciada", motivo: `${tipo} (${rodada.id})` });
       const abort = new AbortController();
