@@ -27,9 +27,9 @@ const COLUNAS =
 
 /**
  * Armazém do Contexto consolidado. `consolidado_versoes` guarda o texto de cada versão;
- * `consolidado_fts` (FTS5) indexa esse texto para a busca do ticket 13.
+ * `consolidado_fts` (FTS5) indexa esse texto para a busca textual.
  */
-export function abrirConsolidado(path: string) {
+export function abrirConsolidado(path: string, mascarar: (s: string) => string = (s) => s) {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -64,7 +64,9 @@ export function abrirConsolidado(path: string) {
 
   const atual = (contextId: string) => atualSql.get(contextId) as unknown as VersaoConsolidado | undefined;
 
-  function adicionar(contextId: string, text: string, taskId: string | null, author: string, revertedFrom: number | null, rodadaId: string | null) {
+  function adicionar(contextId: string, bruto: string, taskId: string | null, author: string, revertedFrom: number | null, rodadaId: string | null) {
+    // ADR-0001/0007: segredo conhecido nunca é gravado, nem na versão nem no índice FTS.
+    const text = mascarar(bruto);
     db.exec("BEGIN IMMEDIATE");
     try {
       const version = (atual(contextId)?.version ?? 0) + 1;
