@@ -271,6 +271,10 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
           orquestradorConfigurado: !!credenciais.agentes.orquestrador,
           definirArea: (id, paths, autor, estado) => areaDb.definir(id, paths, autor, estado),
           decorar: comContexto,
+          contextoDaTarefa: (id) => ctx.contextoDaTarefa(id),
+          atualizarConsolidado: (id, texto, autor, rodadaId) => {
+            cons.atualizar(ctx.contextoDaTarefa(id)!, texto, id, autor, rodadaId);
+          },
           entregarExecucao: (p) => {
             const c = ctx.obter(ctx.contextoDaTarefa(p.tarefaId) ?? "");
             const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
@@ -334,7 +338,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       }
       const respArea = await area.rota(metodo, path, corpoJson, quem);
       if (respArea) return enviar(respArea.status, respArea.corpo);
-      const respConsolidado = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), quem, metodo, path, corpoJson);
+      const respConsolidado = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), quem, metodo, path, corpoJson, (r) => rodadasDb.obter(r)?.tarefaId);
       if (respConsolidado) {
         const r = await respConsolidado;
         return enviar(r.status, r.corpo);
