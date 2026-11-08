@@ -17,6 +17,8 @@ export interface EntradaRodada {
   tipo: TipoRodada;
   /** Diretório de trabalho da Rodada (git). */
   workspace: string;
+  /** Prompt da Rodada: tarefa e Contexto consolidado; na retomada, também o último Checkpoint e o diff desde o SHA (ADR-0004). */
+  prompt: string;
   /** Ambiente do processo do agente (ADR-0008): API, MCP e token `orquestrador`; nunca token humano. */
   ambiente: { ATM_API_URL: string; ATM_MCP_URL: string; ATM_AGENT_TOKEN: string };
   /** Disparado ao cancelar a Rodada ou fechar o daemon. */

@@ -37,6 +37,21 @@ export interface Rodada {
   eventos: EventoRodada[];
 }
 
+/** Checkpoint (ADR-0004): do agente (campos estruturados) ou automático (SHA e arquivos alterados). */
+export interface Checkpoint {
+  id: number;
+  rodadaId: string;
+  tarefaId: string;
+  origem: "agente" | "automático";
+  em: string;
+  /** HEAD do Workspace, gravado pelo sistema. */
+  sha: string | null;
+  progresso: string | null;
+  decisoes: string[];
+  arquivosTocados: string[];
+  proximosPassos: string[];
+}
+
 /** Rodadas, Segmentos e eventos no SQLite. Só INSERT/UPDATE de estado: nada é apagado. */
 export function abrirRodadas(path: string) {
   const db = new DatabaseSync(path);
@@ -71,7 +86,25 @@ export function abrirRodadas(path: string) {
       tipo TEXT NOT NULL,
       dados TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS checkpoints (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rodada_id TEXT NOT NULL,
+      tarefa_id TEXT NOT NULL,
+      origem TEXT NOT NULL,
+      em TEXT NOT NULL,
+      sha TEXT,
+      progresso TEXT,
+      decisoes TEXT NOT NULL,
+      arquivos_tocados TEXT NOT NULL,
+      proximos_passos TEXT NOT NULL
+    );
   `);
+  const insC = db.prepare(
+    "INSERT INTO checkpoints (rodada_id, tarefa_id, origem, em, sha, progresso, decisoes, arquivos_tocados, proximos_passos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  const cpsDaTarefa = db.prepare(
+    "SELECT id, rodada_id AS rodadaId, tarefa_id AS tarefaId, origem, em, sha, progresso, decisoes, arquivos_tocados AS arquivosTocados, proximos_passos AS proximosPassos FROM checkpoints WHERE tarefa_id = ? ORDER BY id",
+  );
   const insR = db.prepare(
     "INSERT INTO rodadas (id, seq, tarefa_id, tipo, estado, iniciada_em, workspace) VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM rodadas), ?, ?, 'em andamento', ?, ?)",
   );
@@ -135,6 +168,19 @@ export function abrirRodadas(path: string) {
       const atual = (ultimoS.get(rodadaId) as { id: string } | undefined)?.id ?? abrirSegmento(rodadaId, { modelo: null, provedor: null });
       somaS.run(u.entrada, u.saida, u.chamadas ?? 0, u.custo ?? null, u.custo ?? null, atual);
     },
+    inserirCheckpoint(c: Omit<Checkpoint, "id" | "em">): Checkpoint {
+      const em = agora();
+      const r = insC.run(c.rodadaId, c.tarefaId, c.origem, em, c.sha, c.progresso, JSON.stringify(c.decisoes), JSON.stringify(c.arquivosTocados), JSON.stringify(c.proximosPassos));
+      return { ...c, id: Number(r.lastInsertRowid), em };
+    },
+    /** Checkpoints da Tarefa (de todas as Rodadas), do mais antigo ao mais recente. */
+    checkpointsDaTarefa: (tarefaId: string): Checkpoint[] =>
+      (cpsDaTarefa.all(tarefaId) as Record<string, unknown>[]).map((c) => ({
+        ...(c as unknown as Checkpoint),
+        decisoes: JSON.parse(c.decisoes as string),
+        arquivosTocados: JSON.parse(c.arquivosTocados as string),
+        proximosPassos: JSON.parse(c.proximosPassos as string),
+      })),
     close: () => db.close(),
   };
 }

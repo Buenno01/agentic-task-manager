@@ -21,10 +21,13 @@ export type Passo =
 
 export type Roteiro = Passo[];
 
-/** Executor determinístico movido por roteiro: sem modelo, sem custo. */
-export function criarExecutorFalso(roteiro: Roteiro): Executor {
+/** Executor determinístico movido por roteiro: sem modelo, sem custo. `prompts` guarda o prompt recebido em cada Rodada. */
+export function criarExecutorFalso(roteiro: Roteiro): Executor & { prompts: string[] } {
+  const prompts: string[] = [];
   return {
+    prompts,
     async executar(e: EntradaRodada) {
+      prompts.push(e.prompt);
       const chamar = async (metodo: string, caminho: string, corpo?: unknown) => {
         const r = await fetch(e.ambiente.ATM_API_URL + caminho.replaceAll("{tarefa}", e.tarefaId), {
           method: metodo,

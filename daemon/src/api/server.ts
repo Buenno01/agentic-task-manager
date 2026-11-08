@@ -135,6 +135,10 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     executor: opts.executor ?? executorNaoConfigurado,
     workspaces,
     reposDaTarefa,
+    consolidadoDaTarefa: (id) => {
+      const c = ctx.contextoDaTarefa(id);
+      return (c && cons.atual(c)?.text) || "";
+    },
     mcpUrl: opts.mcpUrl ?? process.env.ATM_MCP_URL ?? "http://mcp:3100/mcp",
     tokenAgente: credenciais.agentes.orquestrador ?? "",
     apiUrl: () => urlDaemon,
@@ -209,6 +213,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         {
           repo, rodadas: rodadasDb, comentarios: coment,
           iniciar: (id, tipo) => orquestrador.iniciar(id, tipo),
+          checkpointDoAgente: (rodadaId, dados) => orquestrador.checkpointDoAgente(rodadaId, dados),
           orquestradorConfigurado: !!credenciais.agentes.orquestrador,
         },
         metodo, path, autor, corpoJson,

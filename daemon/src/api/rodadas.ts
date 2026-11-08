@@ -11,6 +11,8 @@ export interface DepsRodadasApi {
   rodadas: ArmazemRodadas;
   comentarios: Comentarios;
   iniciar(tarefaId: string, tipo: TipoRodada): Promise<unknown>;
+  /** Grava o Checkpoint do agente com o SHA do HEAD do Workspace. */
+  checkpointDoAgente(rodadaId: string, dados: { progresso: string; decisoes: string[]; arquivosTocados: string[]; proximosPassos: string[] }): Promise<unknown>;
   /** Falso quando o token `orquestrador` não está configurado. */
   orquestradorConfigurado: boolean;
 }
@@ -38,10 +40,14 @@ export function rotaRodadas(
       return r ? { status: 200, corpo: r } : NAO_ENCONTRADO;
     })();
   }
-  const m = path.match(/^\/tarefas\/([^/]+)\/(rodadas|checkpoint|perguntar|entregar)$/);
+  const m = path.match(/^\/tarefas\/([^/]+)\/(rodadas|checkpoints?|perguntar|entregar)$/);
   if (!m) return undefined;
   const [, id, recurso] = m;
   const post = metodo === "POST";
+  if (recurso === "checkpoints") {
+    if (metodo !== "GET") return undefined;
+    return (async () => (d.repo.obterTarefa(id) ? { status: 200, corpo: d.rodadas.checkpointsDaTarefa(id) } : NAO_ENCONTRADO))();
+  }
   if (!((recurso === "rodadas" && (post || metodo === "GET")) || (recurso !== "rodadas" && post))) return undefined;
 
   return (async () => {
@@ -72,8 +78,8 @@ export function rotaRodadas(
         arquivosTocados: lista(b.arquivosTocados, "arquivosTocados"),
         proximosPassos: lista(b.proximosPassos, "proximosPassos"),
       };
-      d.rodadas.registrarEvento(rodadaId, "checkpoint", dados);
-      return { status: 201, corpo: { rodadaId, ...dados } };
+      const cp = await d.checkpointDoAgente(rodadaId, dados);
+      return { status: 201, corpo: cp };
     }
 
     const emAndamento = t.phase === "Exploração" ? "Explorando" : "Em execução";

@@ -147,7 +147,10 @@ test("checkpoint, perguntar e entregar: agente repassa pela API, sem poder de ap
   const [rod] = await esperarFim(id2);
   assert.deepEqual(rod.eventos.filter((e: any) => e.tipo === "api").map((e: any) => e.dados.status), [201, 400, 201]);
   const cp = rod.eventos.find((e: any) => e.tipo === "checkpoint");
-  assert.deepEqual(cp.dados, { progresso: "metade", decisoes: ["d1"], arquivosTocados: ["a.ts"], proximosPassos: ["testar"] });
+  assert.deepEqual(
+    { ...cp.dados, sha: typeof cp.dados.sha },
+    { origem: "agente", sha: "string", progresso: "metade", decisoes: ["d1"], arquivosTocados: ["a.ts"], proximosPassos: ["testar"] },
+  );
   assert.equal((await json(await req("GET", `/tarefas/${id2}`, HUMANO))).state, "Aguardando humano");
 });
 
