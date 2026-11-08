@@ -41,6 +41,7 @@ import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { abrirColetas } from "../db/coletas.ts";
 import { rotaColetas } from "./coletas.ts";
+import { abrirRevisoes } from "../db/revisoes.ts";
 import { clienteNaoConfigurado, type ClienteColeta } from "../coleta/cliente.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
@@ -148,8 +149,10 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const rodadasDb = abrirRodadas(opts.dbPath, mascarador.texto);
   const coletasDb = abrirColetas(opts.dbPath, mascarador.texto);
   coletasDb.interromperPendentes(new Date());
+  const revisoesDb = abrirRevisoes(opts.dbPath, mascarador.texto);
   const coletasDeps = {
     store: coletasDb,
+    revisoes: revisoesDb,
     cliente: opts.coleta?.cliente ?? clienteNaoConfigurado,
     relogio: opts.coleta?.relogio ?? Date.now,
     mascarador,
@@ -472,6 +475,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               cons.close();
               buscaDb.close();
               coletasDb.close();
+              revisoesDb.close();
               r();
             });
             server.closeAllConnections();

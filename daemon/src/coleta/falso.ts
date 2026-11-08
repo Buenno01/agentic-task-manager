@@ -3,8 +3,8 @@ import type { ClienteColeta, PedidoColeta, RespostaColeta } from "./cliente.ts";
 export interface ClienteFalso extends ClienteColeta {
   /** Define a resposta de um período. */
   definir(period: string, resposta: RespostaColeta): void;
-  /** Faz as próximas coletas falharem com `mensagem`. */
-  falharCom(mensagem: string): void;
+  /** Faz as próximas coletas falharem com `mensagem`; `undefined` volta a coletar normalmente. */
+  falharCom(mensagem: string | undefined): void;
   /** Tokens recebidos, na ordem das chamadas. */
   tokensRecebidos: string[];
   pedidos: PedidoColeta[];

@@ -1,0 +1,46 @@
+import type { DepsColetas } from "./coletas.ts";
+import { hashDoSnapshot, normalizarMetricas } from "../domain/coleta.ts";
+import { diferencas, janelaDeRecoleta } from "../domain/revisao.ts";
+import { criarMascarador } from "../seguranca/mascarador.ts";
+
+/**
+ * Roda a Coleta em segundo plano (RF25): nunca lança; o resultado fica na Coleta.
+ * Recoleta a janela do Coletor mais os períodos com Lacuna aberta. Por período:
+ * hash igual = nada novo; hash diferente = novo Snapshot + Revisão (se havia anterior);
+ * falha = Lacuna (se o período ainda não tem Snapshot); sucesso = recupera a Lacuna.
+ */
+export async function recolher(d: DepsColetas, coletaId: string): Promise<void> {
+  const coleta = d.store.obterColeta(coletaId)!;
+  const coletor = d.store.obterColetor(coleta.coletorId)!;
+  const agora = () => new Date(d.relogio());
+  // O valor do token vive só aqui, em memória; é mascarado em qualquer erro que o cliente devolva.
+  const token = process.env[coletor.tokenEnv];
+  const mascarar = token ? criarMascarador(() => [token]) : d.mascarador;
+  const limpar = (e: unknown) => mascarar.texto(d.mascarador.texto(e instanceof Error ? e.message : String(e)));
+
+  const periodos = [...new Set([...d.revisoes.periodosEmAberto(coletor.id), ...janelaDeRecoleta(coleta.period, coletor.recollectWindowDays)])].sort();
+  const erros: string[] = [];
+  for (const period of periodos) {
+    try {
+      if (!token) throw new Error(`Variável de ambiente ${coletor.tokenEnv} não definida`);
+      const r = await d.cliente.coletar({ source: coletor.source, params: coletor.params, period, token });
+      const payload = normalizarMetricas(r.metricas);
+      const hash = hashDoSnapshot(period, r.moeda, payload);
+      const anterior = d.store.maisRecentes(coletor.id).find((s) => s.period === period);
+      if (!anterior || anterior.hash !== hash) {
+        const novo = d.store.gravarSnapshot({ coletorId: coletor.id, coletaId, period, currency: r.moeda, payload, hash }, agora());
+        if (anterior)
+          d.revisoes.registrarRevisao(
+            { coletorId: coletor.id, coletaId, period, previousSnapshotId: anterior.id, snapshotId: novo.id, changes: diferencas(anterior.payload, payload) },
+            agora(),
+          );
+      }
+      d.revisoes.recuperarLacuna(coletor.id, period, coletaId, agora());
+    } catch (e) {
+      const msg = limpar(e);
+      erros.push(msg);
+      if (!d.store.maisRecentes(coletor.id).some((s) => s.period === period)) d.revisoes.abrirLacuna(coletor.id, coletaId, period, msg, agora());
+    }
+  }
+  d.store.concluirColeta(coletaId, erros.length ? erros[0] : null, agora());
+}

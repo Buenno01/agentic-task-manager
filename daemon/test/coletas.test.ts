@@ -105,7 +105,7 @@ test("token de agente recebe 403 ao criar Coletor ou disparar Coleta, mas pode l
 
 test("Coleta sob demanda é assíncrona e gera Snapshot imutável com hash e moeda; a visão consolidada aponta para ele", async () => {
   cliente.definir("2026-03-09", { moeda: "BRL", metricas: { orders: 12, netRevenue: 3400.5, conversion: null } });
-  const c = await novoColetor();
+  const c = await novoColetor({ recollectWindowDays: 1 });
 
   const res = await send("POST", `/coletores/${c.id}/coletas`, {});
   assert.equal(res.status, 202);
@@ -114,7 +114,11 @@ test("Coleta sob demanda é assíncrona e gera Snapshot imutável com hash e moe
   assert.equal(iniciada.state, "em andamento");
   assert.equal(iniciada.period, "2026-03-09"); // padrão: o dia anterior ao relógio
 
-  const coleta = await coletar(c.id);
+  let coleta = await json("GET", `/coletas/${iniciada.id}`);
+  for (let i = 0; i < 200 && coleta.state === "em andamento"; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    coleta = await json("GET", `/coletas/${iniciada.id}`);
+  }
   assert.equal(coleta.state, "concluída");
   assert.equal(coleta.snapshots.length, 1);
 
@@ -150,7 +154,7 @@ test("Snapshot é imutável: a API não expõe escrita e o banco recusa UPDATE/D
 test("série por métrica: um ponto por período coletado, em ordem; ausente fica null (nunca zero)", async () => {
   cliente.definir("2026-03-07", { moeda: "BRL", metricas: { orders: 10, conversion: 2.5 } });
   cliente.definir("2026-03-08", { moeda: "BRL", metricas: { orders: 14, conversion: null } });
-  const c = await novoColetor();
+  const c = await novoColetor({ recollectWindowDays: 1 });
   await coletar(c.id, { period: "2026-03-08" });
   await coletar(c.id, { period: "2026-03-07" });
 
