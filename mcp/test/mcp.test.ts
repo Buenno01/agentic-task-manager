@@ -66,7 +66,11 @@ test("perguntar e entregar repassam a API; checkpoint sem Rodada é recusado; ap
   assert.equal((await chamar("checkpoint", { tarefaId: id, progresso: "p" })).erro, true);
   assert.equal((await chamar("perguntar", { tarefaId: id, texto: "Posso?" })).erro, false);
   assert.equal(((await (await humano("GET", `/tarefas/${id}`)).json()) as { state: string }).state, "Aguardando humano");
-  await humano("POST", `/tarefas/${id}/retomar`);
+  // Pergunta sem resposta bloqueia a entrega (409); a resposta do humano devolve a Tarefa à Exploração.
+  assert.equal((await chamar("entregar", { tarefaId: id, resumo: "ok" })).erro, true);
+  const hist = (await (await humano("GET", `/tarefas/${id}/eventos`)).json()) as { id: string; tipo: string }[];
+  const pergunta = hist.find((e) => e.tipo === "pergunta")!;
+  await humano("POST", `/tarefas/${id}/comentarios`, { tipo: "resposta", respondeA: pergunta.id, texto: "pode" });
   assert.equal((await chamar("entregar", { tarefaId: id, resumo: "ok" })).erro, false);
   assert.equal(((await (await humano("GET", `/tarefas/${id}`)).json()) as { state: string }).state, "Plano pronto para aprovação");
 });

@@ -66,7 +66,7 @@ export interface OpcoesDaemon {
   reposDir?: string;
   /** URL do MCP entregue ao processo do agente (ADR-0008; padrão: ATM_MCP_URL ou http://mcp:3100/mcp). */
   mcpUrl?: string;
-  /** Orquestrador (ticket 02). `false` desliga; sem Executor injetado ele também fica desligado. */
+  /** Orquestrador (RF14). `false` desliga; sem Executor injetado ele também fica desligado. */
   orquestrador?: OpcoesOrquestrador | false;
   /** Agenda `fn` daqui a `ms` (SIGKILL 10 s após o SIGTERM do cancelamento); injetável nos testes. */
   temporizador?: (fn: () => void, ms: number) => () => void;
@@ -124,11 +124,11 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const audit = abrirAuditoria(opts.dbPath);
   const exec = abrirExecucao(opts.dbPath);
   const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
-  const coment = abrirComentarios(opts.dbPath);
+  const coment = abrirComentarios(opts.dbPath, mascarador.texto);
   const deps = abrirModuloDependencias(opts.dbPath, repo);
   const prios = abrirPrioridades(opts.dbPath);
   const subs = abrirModuloSubtarefas(opts.dbPath, repo);
-  const areaDb = abrirArea(opts.dbPath);
+  const areaDb = abrirArea(opts.dbPath, mascarador.texto);
   const area = criarArea(repo, ctx, areaDb);
   const comContexto = <T extends { id: string }>(t: T) =>
     area.decorar({
@@ -138,7 +138,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       ...subs.anexar(t.id),
       priority: prios.obter(t.id),
     });
-  const cons = abrirConsolidado(opts.dbPath);
+  const cons = abrirConsolidado(opts.dbPath, mascarador.texto);
   const buscaDb = abrirBusca(opts.dbPath);
   const rodadasDb = abrirRodadas(opts.dbPath, mascarador.texto);
   let urlDaemon = "";
@@ -177,7 +177,6 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     relogio: opts.orquestrador ? opts.orquestrador.relogio : undefined,
     temporizador: opts.temporizador,
   });
-  const orquestrador = rodadasCtl;
   if (opts.executor && opts.orquestrador !== false) {
     orq = criarOrquestrador(
       {
@@ -294,8 +293,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const respRodadas = rotaRodadas(
         {
           repo, rodadas: rodadasDb, comentarios: coment,
-          iniciar: (id, tipo) => orquestrador.iniciar(id, tipo),
-          checkpointDoAgente: (rodadaId, dados) => orquestrador.checkpointDoAgente(rodadaId, dados),
+          iniciar: (id, tipo) => rodadasCtl.iniciar(id, tipo),
+          checkpointDoAgente: (rodadaId, dados) => rodadasCtl.checkpointDoAgente(rodadaId, dados),
           orquestradorConfigurado: !!credenciais.agentes.orquestrador,
           definirArea: (id, paths, autor, estado) => areaDb.definir(id, paths, autor, estado),
           decorar: comContexto,
@@ -435,7 +434,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         varrer: async () => void (await orq?.varrer()),
         close: async () => {
           await orq?.parar();
-          await orquestrador.encerrar();
+          await rodadasCtl.encerrar();
           await new Promise<void>((r) => {
             server.close(() => {
               rodadasDb.close();

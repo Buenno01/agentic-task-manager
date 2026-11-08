@@ -90,7 +90,9 @@ test("Rodada com o falso grava Rodada, Segmento e eventos, visíveis pela API e 
   const tipoHist = hist.map((e: any) => e.tipo);
   assert.ok(tipoHist.includes("rodada-iniciada"));
   assert.ok(tipoHist.includes("rodada-concluida"));
-  assert.ok(tipoHist.includes("entregar"));
+  // A entrega logo após a pergunta sem resposta é recusada (409): a Tarefa segue aguardando o humano.
+  assert.ok(!tipoHist.includes("entregar"));
+  assert.equal((await json(await req("GET", `/tarefas/${id}`, HUMANO))).state, "Aguardando humano");
 });
 
 test("roteiro do falso chama a API real com o token de agente; aprovar é recusado (403)", async () => {

@@ -40,9 +40,17 @@ export function criarApi({ apiUrl, token, fetch: f = fetch }: OpcoesApi) {
     criarTarefa: (corpo: Record<string, unknown>) => chamar("POST", "/tarefas", corpo),
     tarefa: (id: string) => chamar("GET", `/tarefas/${seg(id)}`),
     eventos: (id: string) => chamar("GET", `/tarefas/${seg(id)}/eventos`),
-    checkpoint: (id: string, corpo: Record<string, unknown>) => chamar("POST", `/tarefas/${seg(id)}/checkpoint`, corpo),
+    checkpoint: (id: string, corpo: DadosCheckpointMcp) => chamar("POST", `/tarefas/${seg(id)}/checkpoint`, corpo),
     perguntar: (id: string, texto: string) => chamar("POST", `/tarefas/${seg(id)}/perguntar`, { texto }),
     entregar: (id: string, corpo: { resumo?: string; plano?: string; areaPrevista?: string[] } = {}) => chamar("POST", `/tarefas/${seg(id)}/entregar`, corpo),
   };
 }
 export type Api = ReturnType<typeof criarApi>;
+
+/** Corpo do Checkpoint do agente (espelha `DadosCheckpoint` do daemon; só `progresso` é obrigatório). */
+export interface DadosCheckpointMcp {
+  progresso: string;
+  decisoes?: string[];
+  arquivosTocados?: string[];
+  proximosPassos?: string[];
+}

@@ -145,6 +145,22 @@ test("perguntar → Aguardando humano; a resposta do humano devolve à Exploraç
   assert.equal((await req("POST", `/tarefas/${id}/entregar`, ORQUESTRADOR, { resumo: "ok" })).status, 200);
 });
 
+test("entregar com pergunta sem resposta é 409; depois de respondida, entrega", async () => {
+  await subir([{ pergunta: "Qual o escopo?" }]);
+  const id = await autorizada();
+  await acao(id, "iniciar", AGENTE);
+  await req("POST", `/tarefas/${id}/rodadas`, HUMANO);
+  await esperarFim(id);
+  assert.equal((await tarefa(id)).state, "Aguardando humano");
+  const pergunta = (await json(await req("GET", `/tarefas/${id}/eventos`, HUMANO))).find((e: any) => e.tipo === "pergunta");
+  const bloqueada = await req("POST", `/tarefas/${id}/entregar`, ORQUESTRADOR, { resumo: "ok" });
+  assert.equal(bloqueada.status, 409);
+  assert.match((await json(bloqueada)).error, /pergunta sem resposta/);
+  assert.equal((await tarefa(id)).state, "Aguardando humano");
+  await req("POST", `/tarefas/${id}/comentarios`, HUMANO, { tipo: "resposta", respondeA: pergunta.id, texto: "ok" });
+  assert.equal((await req("POST", `/tarefas/${id}/entregar`, ORQUESTRADOR, { resumo: "ok" })).status, 200);
+});
+
 test("perguntar duas vezes só volta a Explorando quando todas forem respondidas", async () => {
   await subir([{ pergunta: "A?" }, { pergunta: "B?" }]);
   const id = await autorizada();

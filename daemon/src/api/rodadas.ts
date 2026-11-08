@@ -1,7 +1,7 @@
 import { apenasHumano, rotuloAutor, type Autor } from "../auth/credenciais.ts";
 import type { Comentarios } from "../db/comentarios.ts";
 import type { Repositorio } from "../db/index.ts";
-import type { ArmazemRodadas } from "../db/rodadas.ts";
+import type { ArmazemRodadas, DadosCheckpoint } from "../db/rodadas.ts";
 import type { TipoRodada } from "../executor/executor.ts";
 import { ErroValidacao } from "../domain/tarefa.ts";
 import { validarArea } from "../domain/area.ts";
@@ -14,14 +14,14 @@ export interface DepsRodadasApi {
   comentarios: Comentarios;
   iniciar(tarefaId: string, tipo: TipoRodada): Promise<unknown>;
   /** Grava o Checkpoint do agente com o SHA do HEAD do Workspace. */
-  checkpointDoAgente(rodadaId: string, dados: { progresso: string; decisoes: string[]; arquivosTocados: string[]; proximosPassos: string[] }): Promise<unknown>;
+  checkpointDoAgente(rodadaId: string, dados: DadosCheckpoint): Promise<unknown>;
   /** Falso quando o token `orquestrador` não está configurado. */
   orquestradorConfigurado: boolean;
   /** Grava a Área prevista (RF18) com evento no histórico. */
   definirArea(tarefaId: string, paths: string[], autor: string, estado: string): void;
   /** Tarefa com Área prevista e avisos de sobreposição. */
   decorar<T extends { id: string }>(t: T): T;
-  /** Entrega da Execução (ticket 07): commit final, branch+SHA ou PR. Lança ErroEntrega. */
+  /** Entrega da Execução (ADR-0009): commit final, branch+SHA ou PR. Lança ErroEntrega. */
   entregarExecucao(p: { tarefaId: string; titulo: string; resumo: string; workspace: string }): Promise<Entrega>;
   /** Contexto da Tarefa (null se não houver). */
   contextoDaTarefa(tarefaId: string): string | null | undefined;
@@ -119,6 +119,10 @@ export function rotaRodadas(
     // entregar: o agente só sinaliza que terminou; aprovar e aceitar seguem sendo do humano.
     if (t.state !== emAndamento && t.state !== "Aguardando humano")
       return { status: 409, corpo: { error: `Não é possível entregar em ${t.phase} · ${t.state}` } };
+    // Pergunta em aberto: o humano ainda não respondeu; entregar passaria por cima dela.
+    const todos = d.comentarios.listar(id);
+    if (todos.some((c) => c.tipo === "pergunta" && !todos.some((r) => r.respondeA === c.id)))
+      return { status: 409, corpo: { error: "Há pergunta sem resposta; aguarde o humano antes de entregar" } };
     const b = await corpo();
     const para = t.phase === "Exploração" ? "Plano pronto para aprovação" : "Em validação";
     const resumo = typeof b.resumo === "string" ? b.resumo.trim() : "";
@@ -139,11 +143,12 @@ export function rotaRodadas(
     if (plano) d.comentarios.inserir({ tarefaId: id, autor: quem, tipo: "plano", texto: plano });
     if (areaPrevista) d.definirArea(id, areaPrevista, quem, t.state);
     // Execução: commita, registra branch+SHA (ou abre o PR) antes de ir a "Em validação". Falha de entrega não muda o estado.
+    // Rodada da entrega: a ativa ou, se já terminou, a última da Tarefa.
+    const rodadaDaEntregaId = d.rodadas.ativaDaTarefa(id) ?? d.rodadas.listarDaTarefa(id).at(-1)?.id;
     let entrega: Entrega | undefined;
     let motivo = resumo;
     if (t.phase === "Execução") {
-      const rodadaId = d.rodadas.ativaDaTarefa(id) ?? d.rodadas.listarDaTarefa(id).at(-1)?.id;
-      const rodada = rodadaId ? d.rodadas.obter(rodadaId) : undefined;
+      const rodada = rodadaDaEntregaId ? d.rodadas.obter(rodadaDaEntregaId) : undefined;
       if (!rodada) return { status: 409, corpo: { error: "Sem Workspace de Execução para entregar" } };
       try {
         entrega = await d.entregarExecucao({ tarefaId: id, titulo: t.title, resumo, workspace: rodada.workspace });
@@ -155,10 +160,8 @@ export function rotaRodadas(
       motivo = `${resumo ? `${resumo} · ` : ""}${entrega.prUrl ? `PR ${entrega.prUrl}` : `branch ${entrega.branch}`} · SHA ${entrega.sha}`;
     }
     // Nova versão do consolidado só depois de a entrega ter dado certo; origem = a Rodada (o agente nunca aprova).
-    if (consolidado !== undefined) {
-      const rodadaId = d.rodadas.ativaDaTarefa(id) ?? d.rodadas.listarDaTarefa(id).at(-1)?.id;
-      d.atualizarConsolidado(id, consolidado, quem, rodadaId ?? null);
-    }
+    if (consolidado !== undefined)
+      d.atualizarConsolidado(id, consolidado, quem, rodadaDaEntregaId ?? null);
     d.repo.transicionar(id, { autor: quem, tipo: "entregar", de: t.state, para, motivo });
     return { status: 200, corpo: { ...d.decorar({ ...t, state: para }), ...(entrega ? { entrega } : {}) } };
   })();

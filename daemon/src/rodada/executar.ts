@@ -1,4 +1,4 @@
-import type { ArmazemRodadas, Checkpoint, Rodada } from "../db/rodadas.ts";
+import type { ArmazemRodadas, Checkpoint, DadosCheckpoint, Rodada } from "../db/rodadas.ts";
 import { arquivosAlteradosDesde, checkpointDeReferencia, diffDesde, headSha, montarPrompt } from "./retomada.ts";
 import type { Repositorio } from "../db/index.ts";
 import type { Executor, EventoExecutor, TipoRodada } from "../executor/executor.ts";
@@ -18,7 +18,7 @@ export interface DepsRodada {
   reposDaTarefa: (tarefaId: string) => { repositorio: string | null; consulta: string[] };
   /** Texto do Contexto consolidado vigente da Tarefa ("" se não houver). */
   consolidadoDaTarefa?: (tarefaId: string) => string;
-  /** Aviso de sobreposição real de arquivos (ticket 08); opcional. */
+  /** Aviso de sobreposição real de arquivos (RF18); opcional. */
   vigiaSobreposicao?: ReturnType<typeof criarVigiaSobreposicao>;
   mcpUrl: string;
   /** Token do agente `orquestrador` (nunca o humano). */
@@ -73,7 +73,7 @@ export function criarRodadas(d: DepsRodada) {
   async function checkpoint(
     rodadaId: string,
     origem: "agente" | "automático",
-    dados: { progresso?: string; decisoes?: string[]; arquivosTocados?: string[]; proximosPassos?: string[] } = {},
+    dados: Partial<DadosCheckpoint> = {},
     motivo = "",
   ): Promise<Checkpoint | undefined> {
     const r = d.rodadas.obter(rodadaId);
@@ -127,9 +127,9 @@ export function criarRodadas(d: DepsRodada) {
 
   return {
     /** Checkpoint do agente (rota POST /tarefas/:id/checkpoint). */
-    checkpointDoAgente: (rodadaId: string, dados: { progresso: string; decisoes: string[]; arquivosTocados: string[]; proximosPassos: string[] }) =>
+    checkpointDoAgente: (rodadaId: string, dados: DadosCheckpoint) =>
       checkpoint(rodadaId, "agente", dados),
-    /** Checkpoint automático (SHA e arquivos alterados); usado ao fim de Segmento e pelo cancelamento (tickets 05-07). */
+    /** Checkpoint automático (SHA e arquivos alterados); usado ao fim de Segmento e pelo cancelamento (ADR-0004). */
     checkpointAutomatico: (rodadaId: string, motivo = "") => checkpoint(rodadaId, "automático", {}, motivo),
     async iniciar(tarefaId: string, tipo: TipoRodada): Promise<Rodada> {
       const workspace = await prepararWorkspace(tarefaId, tipo);

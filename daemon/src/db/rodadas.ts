@@ -62,6 +62,14 @@ export function totaisDeUso(segmentos: Segmento[]): TotaisUso {
   return t;
 }
 
+/** Campos estruturados de um Checkpoint (ADR-0004), escritos pelo agente. */
+export interface DadosCheckpoint {
+  progresso: string;
+  decisoes: string[];
+  arquivosTocados: string[];
+  proximosPassos: string[];
+}
+
 /** Checkpoint (ADR-0004): do agente (campos estruturados) ou automático (SHA e arquivos alterados). */
 export interface Checkpoint {
   id: number;
