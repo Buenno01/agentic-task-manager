@@ -18,7 +18,7 @@ export interface DepsColetas {
 }
 
 /** Roda a Coleta em segundo plano (RF25): nunca lança; o resultado fica na Coleta. */
-async function executar(d: DepsColetas, coletaId: string) {
+export async function executarColeta(d: DepsColetas, coletaId: string) {
   const coleta = d.store.obterColeta(coletaId)!;
   const coletor = d.store.obterColetor(coleta.coletorId)!;
   const agora = () => new Date(d.relogio());
@@ -75,7 +75,7 @@ export function rotaColetas(
     if (metodo === "POST" && sub === "coletas")
       return corpo().then((e) => {
         const coleta = store.iniciarColeta(id, periodoDaColeta(e.period, d.relogio()), new Date(d.relogio()));
-        const p: Promise<void> = executar(d, coleta.id).finally(() => d.emVoo.delete(p));
+        const p: Promise<void> = executarColeta(d, coleta.id).finally(() => d.emVoo.delete(p));
         d.emVoo.add(p);
         return ok(coleta, 202);
       });
