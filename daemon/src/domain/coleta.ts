@@ -3,7 +3,7 @@ import { ErroValidacao } from "./tarefa.ts";
 import { agendaDoColetor } from "./agenda.ts";
 
 /** Fontes de dados conhecidas. Contrato simples, sem plataforma de plugins (ADR-0003). */
-export const FONTES = ["falso"] as const;
+export const FONTES = ["falso", "shopify"] as const;
 export type Fonte = (typeof FONTES)[number];
 
 export const FREQUENCIAS = ["diaria", "semanal"] as const;
@@ -12,6 +12,12 @@ export type Frequencia = (typeof FREQUENCIAS)[number];
 /** Métricas da Coleta (RF25). Ausente no Snapshot fica `null`, nunca zero. */
 export const METRICAS = ["orders", "netRevenue", "averageTicket", "conversion"] as const;
 export type Metrica = (typeof METRICAS)[number];
+
+/** Métricas extras da Shopify, sem limiar de Anomalia: receita bruta, reembolsos e unidades do dia. */
+export const METRICAS_EXTRAS = ["grossRevenue", "refunds", "units"] as const;
+/** Quebra por produto: `produto:<id>:unidades` e `produto:<id>:receita`. */
+const METRICA_PRODUTO = /^produto:\d+:(unidades|receita)$/;
+export const ehMetricaDeSnapshot = (nome: string) => (METRICAS as readonly string[]).includes(nome) || (METRICAS_EXTRAS as readonly string[]).includes(nome) || METRICA_PRODUTO.test(nome);
 
 /** Limiares de variação (%) por métrica. */
 export type Limiares = Record<Metrica, number>;
@@ -47,6 +53,7 @@ export function validarColetor(e: Record<string, unknown>, contextoExiste: (id: 
   const params = e.params ?? {};
   if (!params || typeof params !== "object" || Array.isArray(params)) throw new ErroValidacao("params deve ser um objeto");
   agendaDoColetor(params as Record<string, unknown>);
+  if (e.source === "shopify") lojaShopify(params as Record<string, unknown>);
   const janela = e.recollectWindowDays ?? 7;
   if (typeof janela !== "number" || !Number.isInteger(janela) || janela < 1) throw new ErroValidacao("recollectWindowDays deve ser inteiro ≥ 1");
   const auto = e.automaticAnalysis ?? false;
@@ -71,6 +78,18 @@ export function validarColetor(e: Record<string, unknown>, contextoExiste: (id: 
   };
 }
 
+const DOMINIO_LOJA = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
+const VERSAO_API = /^\d{4}-\d{2}$/;
+export const VERSAO_API_PADRAO = "2025-01";
+
+/** Loja (`shop`, domínio myshopify.com) e versão da Admin API (`apiVersion`, opcional) dos params de um Coletor Shopify. */
+export function lojaShopify(params: Record<string, unknown>): { shop: string; apiVersion: string } {
+  if (typeof params.shop !== "string" || !DOMINIO_LOJA.test(params.shop)) throw new ErroValidacao("params.shop deve ser o domínio da loja (ex.: minha-loja.myshopify.com)");
+  const apiVersion = params.apiVersion ?? VERSAO_API_PADRAO;
+  if (typeof apiVersion !== "string" || !VERSAO_API.test(apiVersion)) throw new ErroValidacao("params.apiVersion deve ser AAAA-MM (ex.: 2025-01)");
+  return { shop: params.shop, apiVersion };
+}
+
 /** Período pedido (AAAA-MM-DD) ou, por padrão, o dia anterior ao relógio. */
 export function periodoDaColeta(pedido: unknown, agoraMs: number): string {
   if (pedido === undefined || pedido === null) return new Date(agoraMs - 86_400_000).toISOString().slice(0, 10);
@@ -81,7 +100,7 @@ export function periodoDaColeta(pedido: unknown, agoraMs: number): string {
 /** Métricas conhecidas, em ordem estável; ausente vira null. */
 export function normalizarMetricas(bruto: Record<string, unknown>): Record<string, number | null> {
   const out: Record<string, number | null> = {};
-  for (const m of [...METRICAS].sort()) {
+  for (const m of Object.keys(bruto).filter(ehMetricaDeSnapshot).sort()) {
     const v = bruto[m];
     if (v !== undefined && v !== null && (typeof v !== "number" || !Number.isFinite(v))) throw new Error(`Métrica ${m} inválida na resposta da fonte`);
     if (v !== undefined) out[m] = v;

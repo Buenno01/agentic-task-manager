@@ -44,7 +44,8 @@ import { rotaColetas, type DepsColetas } from "./coletas.ts";
 import { abrirAnomalias } from "../db/anomalias.ts";
 import { abrirRevisoes } from "../db/revisoes.ts";
 import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
-import { clienteNaoConfigurado, type ClienteColeta } from "../coleta/cliente.ts";
+import { clienteNaoConfigurado, clientePorFonte, type ClienteColeta } from "../coleta/cliente.ts";
+import { criarClienteShopify, type OpcoesShopify } from "../coleta/shopify.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -87,7 +88,7 @@ export interface OpcoesDaemon {
   /** Token do GitHub (padrão: ATM_GITHUB_TOKEN); só entra em Rodadas de Execução, via GIT_ASKPASS. */
   githubToken?: string;
   /** Coleta de métricas (Monitoramento): cliente da fonte e relógio (ms), injetáveis nos testes. */
-  coleta?: { cliente?: ClienteColeta; relogio?: () => number; agendador?: OpcoesAgendador };
+  coleta?: { cliente?: ClienteColeta; relogio?: () => number; agendador?: OpcoesAgendador; shopify?: OpcoesShopify };
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -159,7 +160,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     store: coletasDb,
     revisoes: revisoesDb,
     anomalias: anomaliasDb,
-    cliente: opts.coleta?.cliente ?? clienteNaoConfigurado,
+    cliente: clientePorFonte(opts.coleta?.cliente ?? clienteNaoConfigurado, criarClienteShopify(opts.coleta?.shopify)),
     relogio: opts.coleta?.relogio ?? Date.now,
     mascarador,
     contextoExiste: (i: string) => !!ctx.obter(i),
