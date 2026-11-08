@@ -21,6 +21,8 @@ export interface Repositorio {
   /** Muda o estado e grava o evento na mesma transação. */
   transicionar(id: string, ev: { autor: string; tipo: string; de: string; para: string; motivo: string }): void;
   listarEventos(id: string): EventoTarefa[];
+  /** Grava um evento no histórico sem mudar o estado (ex.: Rodada iniciada). */
+  registrarEvento(id: string, ev: { autor: string; tipo: string; motivo?: string }): void;
   close(): void;
 }
 
@@ -77,6 +79,7 @@ export function abrirBanco(path: string): Repositorio {
       }
     },
     listarEventos: (id) => selEv.all(id) as unknown as EventoTarefa[],
+    registrarEvento: (id, e) => void insEv.run(id, agora(), e.autor, e.tipo, "", "", e.motivo ?? ""),
     inserirTarefa: (t) => void insert.run(t.id, t.title, t.description, t.phase, t.state, t.createdAt),
     listarTarefas: () => select.all() as unknown as Tarefa[],
     close: () => db.close(),

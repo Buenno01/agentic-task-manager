@@ -88,5 +88,38 @@ export function criarServidorMcp(api: Api): McpServer {
       }),
   );
 
+  s.registerTool(
+    "checkpoint",
+    {
+      description: "Grava um Checkpoint estruturado da Rodada em andamento (progresso, decisões, arquivos tocados, próximos passos).",
+      inputSchema: {
+        tarefaId: z.string(),
+        progresso: z.string(),
+        decisoes: z.array(z.string()).optional(),
+        arquivosTocados: z.array(z.string()).optional(),
+        proximosPassos: z.array(z.string()).optional(),
+      },
+    },
+    ({ tarefaId, ...corpo }) => executar(() => api.checkpoint(tarefaId, corpo)),
+  );
+
+  s.registerTool(
+    "perguntar",
+    {
+      description: "Faz uma pergunta ao humano; a Tarefa vai a \"Aguardando humano\". Siga com o que for independente e seguro.",
+      inputSchema: { tarefaId: z.string(), texto: z.string() },
+    },
+    ({ tarefaId, texto }) => executar(() => api.perguntar(tarefaId, texto)),
+  );
+
+  s.registerTool(
+    "entregar",
+    {
+      description: "Entrega o resultado da Rodada (plano na Exploração, trabalho na Execução). Não aprova nem conclui: isso é do humano.",
+      inputSchema: { tarefaId: z.string(), resumo: z.string().optional() },
+    },
+    ({ tarefaId, resumo }) => executar(() => api.entregar(tarefaId, resumo)),
+  );
+
   return s;
 }

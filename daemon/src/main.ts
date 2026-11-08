@@ -17,6 +17,10 @@ if (!credenciais) {
   console.error("ATM_HUMAN_TOKEN não definido (variável de ambiente ou .env). Recusando iniciar sem credenciais.");
   process.exit(1);
 }
+if (!credenciais.agentes.orquestrador) {
+  console.error('ATM_AGENT_TOKENS deve incluir o agente "orquestrador" (orquestrador:<token>); ver ADR-0008. Recusando iniciar.');
+  process.exit(1);
+}
 mkdirSync(dirname(dbPath), { recursive: true });
 const host = process.env.ATM_HOST ?? "127.0.0.1";
 const corsOrigins = process.env.ATM_CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);

@@ -54,9 +54,21 @@ async function chamar(name: string, args: Record<string, unknown>) {
   return { erro: !!r.isError, texto, json: () => JSON.parse(texto) };
 }
 
-test("expõe só ferramentas de leitura/criação, nenhuma de aprovação ou transição", async () => {
+test("expõe só ferramentas de leitura/criação/entrega, nenhuma de aprovação ou transição", async () => {
   const nomes = (await client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(nomes, ["buscar", "comentar", "criar_subtarefa", "criar_tarefa", "ler_contexto", "ler_tarefa"]);
+  assert.deepEqual(nomes, ["buscar", "checkpoint", "comentar", "criar_subtarefa", "criar_tarefa", "entregar", "ler_contexto", "ler_tarefa", "perguntar"]);
+});
+
+test("perguntar e entregar repassam a API; checkpoint sem Rodada é recusado; aprovar continua do humano", async () => {
+  const id = (await (await humano("POST", "/tarefas", { title: "T" })).json() as { id: string }).id;
+  await humano("POST", `/tarefas/${id}/autorizar`);
+  await humano("POST", `/tarefas/${id}/iniciar`);
+  assert.equal((await chamar("checkpoint", { tarefaId: id, progresso: "p" })).erro, true);
+  assert.equal((await chamar("perguntar", { tarefaId: id, texto: "Posso?" })).erro, false);
+  assert.equal(((await (await humano("GET", `/tarefas/${id}`)).json()) as { state: string }).state, "Aguardando humano");
+  await humano("POST", `/tarefas/${id}/retomar`);
+  assert.equal((await chamar("entregar", { tarefaId: id, resumo: "ok" })).erro, false);
+  assert.equal(((await (await humano("GET", `/tarefas/${id}`)).json()) as { state: string }).state, "Plano pronto para aprovação");
 });
 
 test("criar_tarefa cria em Novo e o agente não consegue aprová-la", async () => {

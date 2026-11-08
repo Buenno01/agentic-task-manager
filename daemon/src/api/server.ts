@@ -24,6 +24,10 @@ import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
 import { abrirModuloSubtarefas } from "./subtarefas.ts";
 import { abrirBusca } from "../db/busca.ts";
 import { rotaBusca } from "./busca.ts";
+import { abrirRodadas } from "../db/rodadas.ts";
+import { criarRodadas } from "../rodada/executar.ts";
+import { rotaRodadas } from "./rodadas.ts";
+import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -41,6 +45,12 @@ export interface OpcoesDaemon {
   anexoMaxBytes?: number;
   /** Origens CORS permitidas (padrão: a UI local em :5173). */
   corsOrigins?: string[];
+  /** Adaptador do Executor (injetável; testes usam o falso). Padrão: nenhum configurado. */
+  executor?: Executor;
+  /** Raiz dos Workspaces das Rodadas (padrão: ATM_WORKSPACES_DIR ou ./data/workspaces). */
+  workspacesDir?: string;
+  /** URL do MCP entregue ao processo do agente (ADR-0008; padrão: ATM_MCP_URL ou http://mcp:3100/mcp). */
+  mcpUrl?: string;
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -99,6 +109,17 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     });
   const cons = abrirConsolidado(opts.dbPath);
   const buscaDb = abrirBusca(opts.dbPath);
+  const rodadasDb = abrirRodadas(opts.dbPath);
+  let urlDaemon = "";
+  const orquestrador = criarRodadas({
+    repo,
+    rodadas: rodadasDb,
+    executor: opts.executor ?? executorNaoConfigurado,
+    workspacesDir: opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces",
+    mcpUrl: opts.mcpUrl ?? process.env.ATM_MCP_URL ?? "http://mcp:3100/mcp",
+    tokenAgente: credenciais.agentes.orquestrador ?? "",
+    apiUrl: () => urlDaemon,
+  });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação autenticada registra o autor.
     // Sondagens (/health, OPTIONS) não entram na auditoria.
@@ -141,6 +162,18 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       );
       if (respHistorico) {
         const r = await respHistorico;
+        return enviar(r.status, r.corpo);
+      }
+      const respRodadas = rotaRodadas(
+        {
+          repo, rodadas: rodadasDb, comentarios: coment,
+          iniciar: (id, tipo) => orquestrador.iniciar(id, tipo),
+          orquestradorConfigurado: !!credenciais.agentes.orquestrador,
+        },
+        metodo, path, autor, corpoJson,
+      );
+      if (respRodadas) {
+        const r = await respRodadas;
         return enviar(r.status, r.corpo);
       }
       // Ciclo de vida da Exploração: guarda apenasHumano antes de qualquer outra checagem.
@@ -257,11 +290,14 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   return new Promise((resolve) => {
     server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
+      urlDaemon = `http://127.0.0.1:${port}`;
       resolve({
-        url: `http://127.0.0.1:${port}`,
-        close: () =>
-          new Promise<void>((r) => {
+        url: urlDaemon,
+        close: async () => {
+          await orquestrador.encerrar();
+          await new Promise<void>((r) => {
             server.close(() => {
+              rodadasDb.close();
               repo.close();
               ctx.close();
               audit.close();
@@ -277,7 +313,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               r();
             });
             server.closeAllConnections();
-          }),
+          });
+        },
       });
     });
   });

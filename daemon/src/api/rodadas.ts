@@ -1,0 +1,100 @@
+import { apenasHumano, rotuloAutor, type Autor } from "../auth/credenciais.ts";
+import type { Comentarios } from "../db/comentarios.ts";
+import type { Repositorio } from "../db/index.ts";
+import type { ArmazemRodadas } from "../db/rodadas.ts";
+import type { TipoRodada } from "../executor/executor.ts";
+import { ErroValidacao } from "../domain/tarefa.ts";
+import type { Resposta } from "./contextos.ts";
+
+export interface DepsRodadasApi {
+  repo: Repositorio;
+  rodadas: ArmazemRodadas;
+  comentarios: Comentarios;
+  iniciar(tarefaId: string, tipo: TipoRodada): Promise<unknown>;
+  /** Falso quando o token `orquestrador` não está configurado. */
+  orquestradorConfigurado: boolean;
+}
+
+const NAO_ENCONTRADO: Resposta = { status: 404, corpo: { error: "Não encontrado" } };
+const lista = (v: unknown, campo: string): string[] => {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new ErroValidacao(`${campo} deve ser lista de textos`);
+  return v as string[];
+};
+
+/** Rodadas e as ações do agente (checkpoint, perguntar, entregar). Nenhuma delas aprova nada. */
+export function rotaRodadas(
+  d: DepsRodadasApi,
+  metodo: string,
+  path: string,
+  autor: Autor,
+  corpo: () => Promise<Record<string, unknown>>,
+): Promise<Resposta> | undefined {
+  const quem = rotuloAutor(autor);
+  const mRodada = path.match(/^\/rodadas\/([^/]+)$/);
+  if (mRodada && metodo === "GET") {
+    return (async () => {
+      const r = d.rodadas.obter(mRodada[1]);
+      return r ? { status: 200, corpo: r } : NAO_ENCONTRADO;
+    })();
+  }
+  const m = path.match(/^\/tarefas\/([^/]+)\/(rodadas|checkpoint|perguntar|entregar)$/);
+  if (!m) return undefined;
+  const [, id, recurso] = m;
+  const post = metodo === "POST";
+  if (!((recurso === "rodadas" && (post || metodo === "GET")) || (recurso !== "rodadas" && post))) return undefined;
+
+  return (async () => {
+    const t = d.repo.obterTarefa(id);
+    if (recurso === "rodadas" && post && !apenasHumano(autor)) return { status: 403, corpo: { error: "Apenas o humano pode fazer isso" } };
+    if (!t) return NAO_ENCONTRADO;
+
+    if (recurso === "rodadas" && metodo === "GET") return { status: 200, corpo: d.rodadas.listarDaTarefa(id) };
+
+    if (recurso === "rodadas") {
+      if (!d.orquestradorConfigurado) return { status: 503, corpo: { error: "Token do agente orquestrador não configurado" } };
+      const explorando = t.phase === "Exploração" && ["Autorizada para explorar", "Explorando"].includes(t.state);
+      const executando = t.phase === "Execução" && ["Na fila", "Em execução"].includes(t.state);
+      if (!explorando && !executando) return { status: 409, corpo: { error: `Sem Rodada possível em ${t.phase} · ${t.state}` } };
+      if (d.rodadas.ativaDaTarefa(id)) return { status: 409, corpo: { error: "A Tarefa já tem uma Rodada em andamento" } };
+      const rodada = await d.iniciar(id, explorando ? "Exploração" : "Execução");
+      return { status: 202, corpo: rodada };
+    }
+
+    if (recurso === "checkpoint") {
+      const rodadaId = d.rodadas.ativaDaTarefa(id);
+      if (!rodadaId) return { status: 409, corpo: { error: "Não há Rodada em andamento" } };
+      const b = await corpo();
+      if (typeof b.progresso !== "string" || !b.progresso.trim()) throw new ErroValidacao("progresso é obrigatório");
+      const dados = {
+        progresso: b.progresso.trim(),
+        decisoes: lista(b.decisoes, "decisoes"),
+        arquivosTocados: lista(b.arquivosTocados, "arquivosTocados"),
+        proximosPassos: lista(b.proximosPassos, "proximosPassos"),
+      };
+      d.rodadas.registrarEvento(rodadaId, "checkpoint", dados);
+      return { status: 201, corpo: { rodadaId, ...dados } };
+    }
+
+    const emAndamento = t.phase === "Exploração" ? "Explorando" : "Em execução";
+    if (recurso === "perguntar") {
+      const b = await corpo();
+      if (typeof b.texto !== "string" || !b.texto.trim()) throw new ErroValidacao("texto é obrigatório");
+      if (t.state !== emAndamento && t.state !== "Aguardando humano")
+        return { status: 409, corpo: { error: `Não é possível perguntar em ${t.state}` } };
+      const c = d.comentarios.inserir({ tarefaId: id, autor: quem, tipo: "pergunta", texto: b.texto.trim() });
+      if (t.state === emAndamento)
+        d.repo.transicionar(id, { autor: quem, tipo: "pedir-humano", de: t.state, para: "Aguardando humano", motivo: "Pergunta do agente" });
+      return { status: 201, corpo: c };
+    }
+
+    // entregar: o agente só sinaliza que terminou; aprovar e aceitar seguem sendo do humano.
+    if (t.state !== emAndamento && t.state !== "Aguardando humano")
+      return { status: 409, corpo: { error: `Não é possível entregar em ${t.phase} · ${t.state}` } };
+    const b = await corpo();
+    const para = t.phase === "Exploração" ? "Plano pronto para aprovação" : "Em validação";
+    const resumo = typeof b.resumo === "string" ? b.resumo.trim() : "";
+    d.repo.transicionar(id, { autor: quem, tipo: "entregar", de: t.state, para, motivo: resumo });
+    return { status: 200, corpo: { ...t, state: para } };
+  })();
+}

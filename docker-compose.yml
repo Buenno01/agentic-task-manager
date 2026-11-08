@@ -10,7 +10,10 @@ services:
       ATM_DB_PATH: /data/db/atm.db
       ATM_ATTACHMENTS_DIR: /data/attachments
       ATM_HUMAN_TOKEN: ${ATM_HUMAN_TOKEN:?defina ATM_HUMAN_TOKEN no .env}
-      ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:-}
+      ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:?defina ATM_AGENT_TOKENS no .env, incluindo orquestrador:<token>}
+      # O processo do agente alcança o MCP pela rede do Compose (ADR-0008).
+      ATM_MCP_URL: http://mcp:3100/mcp
+      ATM_WORKSPACES_DIR: /data/workspaces
       # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
       ATM_CORS_ORIGIN: ${ATM_CORS_ORIGIN:-}
     ports:
@@ -19,6 +22,7 @@ services:
       - atm-db:/data/db
       - atm-attachments:/data/attachments
       - atm-logs:/data/logs
+      - atm-workspaces:/data/workspaces
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 5s
@@ -70,3 +74,4 @@ volumes:
   atm-db:
   atm-attachments:
   atm-logs:
+  atm-workspaces:
