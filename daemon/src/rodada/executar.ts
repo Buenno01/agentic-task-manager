@@ -4,6 +4,7 @@ import type { Repositorio } from "../db/index.ts";
 import type { Executor, EventoExecutor, TipoRodada } from "../executor/executor.ts";
 import { ErroValidacao } from "../domain/tarefa.ts";
 import { ESPERA_SIGKILL_MS, erroDeAutorizacao, falhasSeguidas, motivoAguardarHumano } from "./falha.ts";
+import type { criarVigiaSobreposicao } from "./sobreposicao.ts";
 import { ErroWorkspace, type Workspaces } from "../workspace/workspace.ts";
 
 export interface DepsRodada {
@@ -15,6 +16,8 @@ export interface DepsRodada {
   reposDaTarefa: (tarefaId: string) => { repositorio: string | null; consulta: string[] };
   /** Texto do Contexto consolidado vigente da Tarefa ("" se não houver). */
   consolidadoDaTarefa?: (tarefaId: string) => string;
+  /** Aviso de sobreposição real de arquivos (ticket 08); opcional. */
+  vigiaSobreposicao?: ReturnType<typeof criarVigiaSobreposicao>;
   mcpUrl: string;
   /** Token do agente `orquestrador` (nunca o humano). */
   tokenAgente: string;
@@ -134,6 +137,7 @@ export function criarRodadas(d: DepsRodada) {
       let segmentos = 0;
       let fila: Promise<unknown> = Promise.resolve();
       const naFila = (fn: () => Promise<unknown>) => (fila = fila.then(fn).catch(() => {}));
+      const vigiar = d.vigiaSobreposicao?.para(rodada.id, tarefaId, workspace);
       const emitir = (e: EventoExecutor) => {
         if (e.tipo === "segmento") {
           // Um novo Segmento encerra o anterior: Checkpoint automático do fim dele.
@@ -142,6 +146,7 @@ export function criarRodadas(d: DepsRodada) {
           d.rodadas.abrirSegmento(rodada.id, { modelo: s.modelo, provedor: s.provedor });
         } else if (e.tipo === "tokens") d.rodadas.somarUso(rodada.id, e.dados as { entrada: number; saida: number });
         d.rodadas.registrarEvento(rodada.id, e.tipo, e.dados as Record<string, unknown>);
+        if (vigiar && e.tipo === "comando") naFila(vigiar);
       };
       const fim = (async () => {
         try {
@@ -156,6 +161,7 @@ export function criarRodadas(d: DepsRodada) {
             sinalForcado: forcado.signal,
             emitir,
           });
+          if (vigiar) await naFila(vigiar);
           await naFila(async () => segmentos > 0 && checkpoint(rodada.id, "automático", {}, "fim de Segmento"));
           d.rodadas.finalizar(rodada.id, "concluída");
           d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-concluida", motivo: rodada.id });

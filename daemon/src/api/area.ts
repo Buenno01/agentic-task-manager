@@ -25,6 +25,8 @@ export function criarArea(repo: Repositorio, ctx: ArmazemContextos, area: Armaze
     return alvo ? calcularAvisos(alvo, todas) : [];
   };
   return {
+    /** Tarefas com repositório e Área prevista (base do aviso prévio e do aviso real). */
+    visao,
     /** Acrescenta intendedArea e overlapWarnings a uma Tarefa. */
     decorar: <T extends { id: string }>(t: T) => ({ ...t, intendedArea: area.obter(t.id), overlapWarnings: avisos(t.id) }),
     /** Rotas /tarefas/:id/area-prevista e /tarefas/:id/sobreposicao; undefined se não for destas. */

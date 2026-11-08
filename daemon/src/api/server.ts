@@ -29,6 +29,8 @@ import { abrirBusca } from "../db/busca.ts";
 import { rotaBusca } from "./busca.ts";
 import { abrirRodadas } from "../db/rodadas.ts";
 import { criarRodadas } from "../rodada/executar.ts";
+import { criarVigiaSobreposicao } from "../rodada/sobreposicao.ts";
+import { rotaUso } from "./uso.ts";
 import { podeRetomar, recuperarInterrompidas } from "../rodada/falha.ts";
 import { rotaRodadas } from "./rodadas.ts";
 import { criarEntrega, type CriarPr } from "../rodada/entrega.ts";
@@ -144,6 +146,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     executor: opts.executor ?? executorNaoConfigurado,
     workspaces,
     reposDaTarefa,
+    vigiaSobreposicao: criarVigiaSobreposicao({ repo, rodadas: rodadasDb, visao: area.visao }),
     consolidadoDaTarefa: (id) => {
       const c = ctx.contextoDaTarefa(id);
       return (c && cons.atual(c)?.text) || "";
@@ -258,6 +261,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         const r = await respHistorico;
         return enviar(r.status, r.corpo);
       }
+      const respUso = rotaUso(repo, rodadasDb, metodo, path);
+      if (respUso) return enviar(respUso.status, respUso.corpo);
       const respRodadas = rotaRodadas(
         {
           repo, rodadas: rodadasDb, comentarios: coment,

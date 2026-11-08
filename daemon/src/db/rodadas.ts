@@ -34,7 +34,32 @@ export interface Rodada {
   erro: string | null;
   workspace: string;
   segmentos: Segmento[];
+  /** Soma do uso medido dos Segmentos. */
+  totais: TotaisUso;
   eventos: EventoRodada[];
+}
+
+export interface TotaisUso {
+  tokensEntrada: number;
+  tokensSaida: number;
+  chamadas: number;
+  /** Nulo quando nenhum Segmento informou custo. */
+  custoEstimado: number | null;
+  /** Verdadeiro se algum Segmento (ou a falta de Segmentos) deixa o uso sem medição. */
+  usoDesconhecido: boolean;
+}
+
+/** Soma o uso medido; Segmentos sem medição contam zero e marcam \"uso desconhecido\". */
+export function totaisDeUso(segmentos: Segmento[]): TotaisUso {
+  const t: TotaisUso = { tokensEntrada: 0, tokensSaida: 0, chamadas: 0, custoEstimado: null, usoDesconhecido: segmentos.length === 0 };
+  for (const s of segmentos) {
+    t.tokensEntrada += s.tokensEntrada ?? 0;
+    t.tokensSaida += s.tokensSaida ?? 0;
+    t.chamadas += s.chamadas ?? 0;
+    if (s.custoEstimado !== null) t.custoEstimado = (t.custoEstimado ?? 0) + s.custoEstimado;
+    if (s.usoDesconhecido) t.usoDesconhecido = true;
+  }
+  return t;
 }
 
 /** Checkpoint (ADR-0004): do agente (campos estruturados) ou automático (SHA e arquivos alterados). */
@@ -128,17 +153,21 @@ export function abrirRodadas(path: string) {
   const evs = db.prepare("SELECT id, em, tipo, dados FROM rodada_eventos WHERE rodada_id = ? ORDER BY id");
   const insE = db.prepare("INSERT INTO rodada_eventos (rodada_id, em, tipo, dados) VALUES (?, ?, ?, ?)");
 
-  const completa = (r: Record<string, unknown>): Rodada => ({
-    ...(r as unknown as Rodada),
-    segmentos: (segs.all(r.id as string) as Record<string, unknown>[]).map((s) => ({
+  const completa = (r: Record<string, unknown>): Rodada => {
+    const segmentos = (segs.all(r.id as string) as Record<string, unknown>[]).map((s) => ({
       ...(s as unknown as Segmento),
       usoDesconhecido: s.tokensEntrada === null,
-    })),
-    eventos: (evs.all(r.id as string) as Record<string, unknown>[]).map((e) => ({
-      ...(e as unknown as EventoRodada),
-      dados: JSON.parse(e.dados as string),
-    })),
-  });
+    }));
+    return {
+      ...(r as unknown as Rodada),
+      segmentos,
+      totais: totaisDeUso(segmentos),
+      eventos: (evs.all(r.id as string) as Record<string, unknown>[]).map((e) => ({
+        ...(e as unknown as EventoRodada),
+        dados: JSON.parse(e.dados as string),
+      })),
+    };
+  };
 
   const abrirSegmento = (rodadaId: string, s: { modelo: string | null; provedor: string | null }) => {
     const id = randomUUID();
