@@ -43,6 +43,8 @@ import { abrirColetas } from "../db/coletas.ts";
 import { rotaColetas, type DepsColetas } from "./coletas.ts";
 import { abrirAnomalias } from "../db/anomalias.ts";
 import { abrirRevisoes } from "../db/revisoes.ts";
+import { abrirFalhasHumanas } from "../db/falhas-humanas.ts";
+import { criarRegistroDeFalhaHumana } from "../coleta/falha-humana.ts";
 import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
 import { clienteNaoConfigurado, clientePorFonte, type ClienteColeta } from "../coleta/cliente.ts";
 import { criarClienteShopify, type OpcoesShopify } from "../coleta/shopify.ts";
@@ -156,10 +158,33 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   coletasDb.interromperPendentes(new Date());
   const revisoesDb = abrirRevisoes(opts.dbPath, mascarador.texto);
   const anomaliasDb = abrirAnomalias(opts.dbPath);
+  const falhasHumanasDb = abrirFalhasHumanas(opts.dbPath);
+  const registrarFalhaHumana = criarRegistroDeFalhaHumana({
+    armazem: falhasHumanasDb,
+    obterTarefa: (id) => repo.obterTarefa(id),
+    criarTarefa: (contextId, title, description) => {
+      const t = novaTarefa({ title, description });
+      repo.inserirTarefa(t);
+      ctx.associarTarefa(t.id, contextId);
+      return t.id;
+    },
+    registrarEvento: (id, ev) => repo.registrarEvento(id, ev),
+  });
   const coletasDeps: DepsColetas = {
     store: coletasDb,
     revisoes: revisoesDb,
     anomalias: anomaliasDb,
+    aoFalharComAcaoHumana: (f) =>
+      registrarFalhaHumana({
+        coletorId: f.coletor.id,
+        contextId: f.coletor.contextId,
+        source: f.coletor.source,
+        loja: typeof f.coletor.params.shop === "string" ? f.coletor.params.shop : undefined,
+        categoria: f.categoria,
+        period: f.period,
+        mensagem: f.mensagem,
+        agora: f.agora,
+      }),
     cliente: clientePorFonte(opts.coleta?.cliente ?? clienteNaoConfigurado, criarClienteShopify(opts.coleta?.shopify)),
     relogio: opts.coleta?.relogio ?? Date.now,
     mascarador,
@@ -489,6 +514,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               coletasDb.close();
               revisoesDb.close();
               anomaliasDb.close();
+              falhasHumanasDb.close();
               r();
             });
             server.closeAllConnections();

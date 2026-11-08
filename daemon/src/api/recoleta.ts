@@ -5,6 +5,7 @@ import { detectarAnomalias } from "../coleta/anomalia.ts";
 import { agendaDoColetor } from "../domain/agenda.ts";
 import type { Coletor } from "../domain/coleta.ts";
 import { criarMascarador } from "../seguranca/mascarador.ts";
+import { categoriaDaFalha } from "../coleta/falha-humana.ts";
 
 /**
  * Roda a Coleta em segundo plano (RF25): nunca lança; o resultado fica na Coleta.
@@ -23,6 +24,7 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
 
   const periodos = [...new Set([...d.revisoes.periodosEmAberto(coletor.id), ...janelaDeRecoleta(coleta.period, coletor.recollectWindowDays)])].sort();
   const erros: string[] = [];
+  const jaAvisadas = new Set<string>(); // uma notificação por categoria e Coleta, mesmo com vários períodos
   for (const period of periodos) {
     try {
       if (!token) throw new Error(`Variável de ambiente ${coletor.tokenEnv} não definida`);
@@ -42,6 +44,15 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
     } catch (e) {
       const msg = limpar(e);
       erros.push(msg);
+      const categoria = categoriaDaFalha(e);
+      if (categoria && !jaAvisadas.has(categoria)) {
+        jaAvisadas.add(categoria);
+        try {
+          d.aoFalharComAcaoHumana?.({ coletor, categoria, period, mensagem: msg, agora: agora() });
+        } catch {
+          // Criar a Tarefa nunca derruba a Coleta.
+        }
+      }
       if (!d.store.maisRecentes(coletor.id).some((s) => s.period === period)) d.revisoes.abrirLacuna(coletor.id, coletaId, period, msg, agora());
     }
   }

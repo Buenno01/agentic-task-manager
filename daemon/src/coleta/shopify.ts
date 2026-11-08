@@ -2,6 +2,7 @@ import type { ClienteColeta, PedidoColeta, RespostaColeta } from "./cliente.ts";
 import { httpShopifyReal, type HttpShopify, type RespostaShopify } from "./shopify-http.ts";
 import { agendaDoColetor, dataNoFuso, somarDias } from "../domain/agenda.ts";
 import { lojaShopify } from "../domain/coleta.ts";
+import { ErroExigeAcaoHumana } from "./falha-humana.ts";
 
 export interface OpcoesShopify {
   /** Camada HTTP; testes injetam a loja falsa. */
@@ -101,8 +102,9 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
           const timeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
           throw new ErroTransitorio(timeout ? `Shopify: timeout após ${timeoutMs} ms` : "Shopify: falha de rede");
         }
-        if (res.status === 401 || res.status === 403)
-          throw new ErroFatal(`Shopify recusou a credencial (HTTP ${res.status}): token inválido, expirado ou sem escopo`);
+        if (res.status === 401) throw new ErroExigeAcaoHumana("token", "Shopify recusou a credencial (HTTP 401): token inválido ou expirado");
+        if (res.status === 403) throw new ErroExigeAcaoHumana("escopo", "Shopify negou o acesso (HTTP 403): token sem escopo ou sem permissão");
+        if (res.status === 404) throw new ErroExigeAcaoHumana("loja", "Shopify não encontrou a loja (HTTP 404)");
         if (res.status === 429) {
           const s = Number(res.headers["retry-after"]);
           throw new ErroTransitorio("Shopify: limite de requisições (HTTP 429)", Number.isFinite(s) && s >= 0 ? s * 1000 : undefined);
@@ -113,11 +115,13 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
         if (corpo.errors?.length) {
           if (corpo.errors.some((e) => e.extensions?.code === "THROTTLED"))
             throw new ErroTransitorio("Shopify: custo GraphQL excedido (THROTTLED)", esperaPeloCusto(corpo.extensions?.cost) || undefined);
+          if (corpo.errors.some((e) => e.extensions?.code === "ACCESS_DENIED"))
+            throw new ErroExigeAcaoHumana("escopo", `Shopify GraphQL: acesso negado (${corpo.errors.map((e) => e.message ?? "erro").join("; ")})`);
           throw new ErroFatal(`Shopify GraphQL: ${corpo.errors.map((e) => e.message ?? "erro").join("; ")}`);
         }
         return { data: corpo.data, custo: corpo.extensions?.cost };
       } catch (e) {
-        if (e instanceof ErroFatal || !(e instanceof ErroTransitorio)) throw e;
+        if (e instanceof ErroFatal || e instanceof ErroExigeAcaoHumana || !(e instanceof ErroTransitorio)) throw e;
         ultimo = e;
         if (n < tentativas) await dormir(e.esperaMs ?? backoffMs * 2 ** (n - 1));
       }

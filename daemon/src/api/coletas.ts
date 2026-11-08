@@ -2,6 +2,7 @@ import type { ArmazemColetas } from "../db/coletas.ts";
 import type { ArmazemAnomalias, Anomalia } from "../db/anomalias.ts";
 import { rotaAnomalias } from "./anomalias.ts";
 import type { Coletor } from "../domain/coleta.ts";
+import type { CategoriaFalha } from "../coleta/falha-humana.ts";
 import type { ClienteColeta } from "../coleta/cliente.ts";
 import type { ArmazemRevisoes } from "../db/revisoes.ts";
 import { METRICAS, ehMetricaDeSnapshot, periodoDaColeta, validarColetor } from "../domain/coleta.ts";
@@ -22,6 +23,8 @@ export interface DepsColetas {
    * Nunca deve lançar; se lançar, a Coleta não é afetada.
    */
   aoDetectarAnomalia?: (anomalia: Anomalia, coletor: Coletor) => void;
+  /** Ticket 07: falha que exige ação humana (uma vez por categoria e Coleta). Não deve lançar. */
+  aoFalharComAcaoHumana?: (falha: { coletor: Coletor; categoria: CategoriaFalha; period: string; mensagem: string; agora: Date }) => void;
   cliente: ClienteColeta;
   relogio: () => number;
   mascarador: Mascarador;
