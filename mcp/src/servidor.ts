@@ -121,5 +121,20 @@ export function criarServidorMcp(api: Api): McpServer {
     ({ tarefaId, ...corpo }) => executar(() => api.entregar(tarefaId, corpo)),
   );
 
+  const coletorId = { coletorId: z.string() };
+  s.registerTool("listar_coletores", { description: "Lista os Coletores de monitoramento (somente leitura).", inputSchema: {} }, () => executar(() => api.coletores()));
+  s.registerTool("ler_coletor", { description: "Lê um Coletor: fonte, frequência, limiares e Contexto.", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.coletor(coletorId)));
+  s.registerTool("listar_coletas", { description: "Lista as Coletas de um Coletor (estado, período, erro).", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.coletas(coletorId)));
+  s.registerTool("ler_coleta", { description: "Lê uma Coleta pelo id.", inputSchema: { coletaId: z.string() } }, ({ coletaId }) => executar(() => api.coleta(coletaId)));
+  s.registerTool("ler_lacunas", { description: "Lista as Lacunas (períodos sem dado ou parciais) de um Coletor.", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.lacunas(coletorId)));
+  s.registerTool("ler_revisoes", { description: "Lista as Revisões (valores que mudaram numa recoleta) de um Coletor.", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.revisoes(coletorId)));
+  s.registerTool("ler_anomalias", { description: "Lista as Anomalias detectadas de um Coletor (valor, base, variação). Use como evidência ao criar Tarefas.", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.anomalias(coletorId)));
+  s.registerTool(
+    "ler_serie",
+    { description: "Série por período de uma métrica (orders, netRevenue, averageTicket, conversion, extras ou produto:<id>:unidades|receita). Ausente = null.", inputSchema: { ...coletorId, metrica: z.string() } },
+    ({ coletorId, metrica }) => executar(() => api.serie(coletorId, metrica)),
+  );
+  s.registerTool("ler_produtos", { description: "Quebra por produto: unidades e receita de cada produto por período.", inputSchema: coletorId }, ({ coletorId }) => executar(() => api.produtos(coletorId)));
+
   return s;
 }
