@@ -78,7 +78,7 @@ export interface Checkpoint {
 }
 
 /** Rodadas, Segmentos e eventos no SQLite. Só INSERT/UPDATE de estado: nada é apagado. */
-export function abrirRodadas(path: string) {
+export function abrirRodadas(path: string, mascarar: (s: string) => string = (s) => s) {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -188,9 +188,9 @@ export function abrirRodadas(path: string) {
     ativaDaTarefa: (tarefaId: string) => (ativa.get(tarefaId) as { id: string } | undefined)?.id,
     emAndamento: () => todasAtivas.all() as unknown as { id: string; tarefaId: string }[],
     totalDaTarefa: (tarefaId: string) => (total.get(tarefaId) as { n: number }).n,
-    finalizar: (id: string, estado: EstadoRodada, erro?: string) => void fim.run(estado, agora(), erro ?? null, id),
+    finalizar: (id: string, estado: EstadoRodada, erro?: string) => void fim.run(estado, agora(), erro == null ? null : mascarar(erro), id),
     registrarEvento: (rodadaId: string, tipo: string, dados: Record<string, unknown>) =>
-      void insE.run(rodadaId, agora(), tipo, JSON.stringify(dados)),
+      void insE.run(rodadaId, agora(), tipo, mascarar(JSON.stringify(dados))),
     abrirSegmento,
     /** Soma uso ao Segmento atual; abre um Segmento sem modelo se ainda não houver. */
     somarUso(rodadaId: string, u: { entrada: number; saida: number; chamadas?: number; custo?: number }) {
@@ -199,7 +199,7 @@ export function abrirRodadas(path: string) {
     },
     inserirCheckpoint(c: Omit<Checkpoint, "id" | "em">): Checkpoint {
       const em = agora();
-      const r = insC.run(c.rodadaId, c.tarefaId, c.origem, em, c.sha, c.progresso, JSON.stringify(c.decisoes), JSON.stringify(c.arquivosTocados), JSON.stringify(c.proximosPassos));
+      const r = insC.run(c.rodadaId, c.tarefaId, c.origem, em, c.sha, c.progresso == null ? null : mascarar(c.progresso), mascarar(JSON.stringify(c.decisoes)), mascarar(JSON.stringify(c.arquivosTocados)), mascarar(JSON.stringify(c.proximosPassos)));
       return { ...c, id: Number(r.lastInsertRowid), em };
     },
     /** Checkpoints da Tarefa (de todas as Rodadas), do mais antigo ao mais recente. */

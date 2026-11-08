@@ -26,7 +26,7 @@ export interface Repositorio {
   close(): void;
 }
 
-export function abrirBanco(path: string): Repositorio {
+export function abrirBanco(path: string, mascarar: (s: string) => string = (s) => s): Repositorio {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -71,7 +71,7 @@ export function abrirBanco(path: string): Repositorio {
       db.exec("BEGIN");
       try {
         upd.run(e.para, id);
-        insEv.run(id, agora(), e.autor, e.tipo, e.de, e.para, e.motivo);
+        insEv.run(id, agora(), e.autor, e.tipo, e.de, e.para, mascarar(e.motivo));
         db.exec("COMMIT");
       } catch (err) {
         db.exec("ROLLBACK");
@@ -79,7 +79,7 @@ export function abrirBanco(path: string): Repositorio {
       }
     },
     listarEventos: (id) => selEv.all(id) as unknown as EventoTarefa[],
-    registrarEvento: (id, e) => void insEv.run(id, agora(), e.autor, e.tipo, "", "", e.motivo ?? ""),
+    registrarEvento: (id, e) => void insEv.run(id, agora(), e.autor, e.tipo, "", "", mascarar(e.motivo ?? "")),
     inserirTarefa: (t) => void insert.run(t.id, t.title, t.description, t.phase, t.state, t.createdAt),
     listarTarefas: () => select.all() as unknown as Tarefa[],
     close: () => db.close(),

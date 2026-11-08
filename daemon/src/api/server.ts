@@ -35,6 +35,8 @@ import { rotaUso } from "./uso.ts";
 import { podeRetomar, recuperarInterrompidas } from "../rodada/falha.ts";
 import { rotaRodadas } from "./rodadas.ts";
 import { criarEntrega, type CriarPr } from "../rodada/entrega.ts";
+import { criarLogs } from "../rodada/logs.ts";
+import { criarMascarador, segredosDasCredenciais, segredosDoAmbiente } from "../seguranca/mascarador.ts";
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
@@ -72,6 +74,10 @@ export interface OpcoesDaemon {
   matarProcesso?: (pid: number) => boolean;
   /** Cria o PR da entrega em modo `pr` (injetável; padrão: push via GIT_ASKPASS + API do GitHub com ATM_GITHUB_TOKEN). */
   criarPr?: CriarPr;
+  /** Logs por Rodada em `<logsDir>/<rodada>/` (padrão: ATM_LOGS_DIR ou /data/logs, volume atm-logs). */
+  logsDir?: string;
+  /** Token do GitHub (padrão: ATM_GITHUB_TOKEN); só entra em Rodadas de Execução, via GIT_ASKPASS. */
+  githubToken?: string;
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -108,8 +114,12 @@ const NEGADO = { error: "Apenas o humano pode fazer isso" };
 export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   if (!opts?.credenciais) throw new Error("startDaemon exige credenciais explícitas (recusa iniciar sem autenticação)");
   const credenciais = opts.credenciais;
+  const tokenGithub = () => opts.githubToken ?? process.env.ATM_GITHUB_TOKEN;
+  // Mascarador (ADR-0001/0007): tokens humano e de agentes, token do GitHub e chaves de provedor do ambiente.
+  const mascarador = criarMascarador(() => segredosDasCredenciais(credenciais), () => segredosDoAmbiente(), () => [tokenGithub()]);
+  const logs = criarLogs(opts.logsDir ?? process.env.ATM_LOGS_DIR ?? "/data/logs", mascarador);
   const origensCors = opts.corsOrigins?.length ? opts.corsOrigins : CORS_ORIGENS_PADRAO;
-  const repo = abrirBanco(opts.dbPath);
+  const repo = abrirBanco(opts.dbPath, mascarador.texto);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
   const exec = abrirExecucao(opts.dbPath);
@@ -130,7 +140,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     });
   const cons = abrirConsolidado(opts.dbPath);
   const buscaDb = abrirBusca(opts.dbPath);
-  const rodadasDb = abrirRodadas(opts.dbPath);
+  const rodadasDb = abrirRodadas(opts.dbPath, mascarador.texto);
   let urlDaemon = "";
   let orq: Orquestrador | undefined;
   const workspacesDir = opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces";
@@ -146,8 +156,10 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     obterTarefa: (id) => repo.obterTarefa(id),
     rodadaAtiva: (id) => !!rodadasDb.ativaDaTarefa(id),
   };
-  const entregar = criarEntrega({ criarPr: opts.criarPr });
+  const entregar = criarEntrega({ criarPr: opts.criarPr, token: tokenGithub });
   const rodadasCtl = criarRodadas({
+    logs,
+    tokenGithub,
     repo,
     rodadas: rodadasDb,
     executor: opts.executor ?? executorNaoConfigurado,

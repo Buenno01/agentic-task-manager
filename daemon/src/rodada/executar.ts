@@ -6,6 +6,8 @@ import { ErroValidacao } from "../domain/tarefa.ts";
 import { ESPERA_SIGKILL_MS, erroDeAutorizacao, falhasSeguidas, motivoAguardarHumano } from "./falha.ts";
 import type { criarVigiaSobreposicao } from "./sobreposicao.ts";
 import { ErroWorkspace, type Workspaces } from "../workspace/workspace.ts";
+import type { LogsRodada } from "./logs.ts";
+import { criarAskpass } from "./askpass.ts";
 
 export interface DepsRodada {
   repo: Repositorio;
@@ -21,6 +23,10 @@ export interface DepsRodada {
   mcpUrl: string;
   /** Token do agente `orquestrador` (nunca o humano). */
   tokenAgente: string;
+  /** Logs por Rodada (saída grande e trilha completa, já mascarados). */
+  logs?: LogsRodada;
+  /** Token do GitHub: entra via GIT_ASKPASS só em Rodada de Execução (ADR-0001). */
+  tokenGithub?: () => string | undefined;
   /** URL da API do próprio daemon (conhecida só depois do listen). */
   apiUrl: () => string;
   /** Chamado quando uma Rodada termina (o orquestrador reage liberando vaga). */
@@ -129,7 +135,10 @@ export function criarRodadas(d: DepsRodada) {
       const workspace = await prepararWorkspace(tarefaId, tipo);
       const prompt = await promptDe(tarefaId, tipo, workspace);
       const rodada = d.rodadas.criar({ tarefaId, tipo, workspace });
-      d.rodadas.registrarEvento(rodada.id, "prompt", { texto: prompt });
+      // Toda gravação de evento da Rodada passa pelos logs (mascarados; saída grande vira arquivo).
+      const registrar = (tipoEv: string, dados: Record<string, unknown>) =>
+        d.rodadas.registrarEvento(rodada.id, tipoEv, d.logs ? d.logs.processar(rodada.id, tipoEv, dados) : dados);
+      registrar("prompt", { texto: prompt });
       d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-iniciada", motivo: `${tipo} (${rodada.id})` });
       const abort = new AbortController();
       const forcado = new AbortController();
@@ -145,10 +154,13 @@ export function criarRodadas(d: DepsRodada) {
           const s = e.dados as { modelo: string; provedor: string };
           d.rodadas.abrirSegmento(rodada.id, { modelo: s.modelo, provedor: s.provedor });
         } else if (e.tipo === "tokens") d.rodadas.somarUso(rodada.id, e.dados as { entrada: number; saida: number });
-        d.rodadas.registrarEvento(rodada.id, e.tipo, e.dados as Record<string, unknown>);
+        registrar(e.tipo, e.dados as Record<string, unknown>);
         if (vigiar && e.tipo === "comando") naFila(vigiar);
       };
       const fim = (async () => {
+        // GitHub só na Execução: Exploração nunca recebe o token (ADR-0001).
+        const tk = tipo === "Execução" ? d.tokenGithub?.()?.trim() : undefined;
+        const askpass = tk ? criarAskpass(tk) : undefined;
         try {
           await d.executor.executar({
             rodadaId: rodada.id,
@@ -156,7 +168,7 @@ export function criarRodadas(d: DepsRodada) {
             tipo,
             workspace,
             prompt,
-            ambiente: { ATM_API_URL: d.apiUrl(), ATM_MCP_URL: d.mcpUrl, ATM_AGENT_TOKEN: d.tokenAgente },
+            ambiente: { ATM_API_URL: d.apiUrl(), ATM_MCP_URL: d.mcpUrl, ATM_AGENT_TOKEN: d.tokenAgente, ...askpass?.ambiente },
             sinal: abort.signal,
             sinalForcado: forcado.signal,
             emitir,
@@ -181,12 +193,13 @@ export function criarRodadas(d: DepsRodada) {
             d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-interrompida", motivo: rodada.id });
           } else {
             const autorizacao = erroDeAutorizacao(e);
-            d.rodadas.registrarEvento(rodada.id, "falha", { erro: msg, autorizacao, emMs: relogio() });
+            registrar("falha", { erro: msg, autorizacao, emMs: relogio() });
             d.rodadas.finalizar(rodada.id, "falhou", msg);
             d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-falhou", motivo: msg });
             escalarSeNecessario(tarefaId, msg, autorizacao);
           }
         } finally {
+          askpass?.remover();
           ativas.delete(rodada.id);
           d.aoTerminar?.();
         }
