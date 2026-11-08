@@ -20,6 +20,11 @@ export interface ClienteColeta {
   coletar(pedido: PedidoColeta): Promise<RespostaColeta>;
 }
 
+/** Despacha a Coleta ao cliente da fonte: Shopify vai ao cliente Shopify; o resto, ao `outro`. */
+export function clientePorFonte(outro: ClienteColeta, shopify: ClienteColeta): ClienteColeta {
+  return { coletar: (pedido) => (pedido.source === "shopify" ? shopify : outro).coletar(pedido) };
+}
+
 /** Padrão quando nada foi injetado: nenhuma fonte real configurada ainda. */
 export const clienteNaoConfigurado: ClienteColeta = {
   async coletar() {

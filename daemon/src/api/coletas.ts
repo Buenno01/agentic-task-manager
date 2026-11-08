@@ -1,7 +1,7 @@
 import type { ArmazemColetas } from "../db/coletas.ts";
 import type { ClienteColeta } from "../coleta/cliente.ts";
 import type { ArmazemRevisoes } from "../db/revisoes.ts";
-import { METRICAS, periodoDaColeta, validarColetor, type Metrica } from "../domain/coleta.ts";
+import { METRICAS, ehMetricaDeSnapshot, periodoDaColeta, validarColetor } from "../domain/coleta.ts";
 import type { Mascarador } from "../seguranca/mascarador.ts";
 import { recolher } from "./recoleta.ts";
 import { rotaRevisoes } from "./revisoes.ts";
@@ -50,10 +50,17 @@ export function rotaColetas(
     if (metodo === "GET" && !sub && !metrica) return ok(coletor);
     if (metodo === "GET" && sub === "coletas") return ok(store.listarColetas(id));
     if (metodo === "GET" && sub === "consolidado")
-      return ok(store.maisRecentes(id).flatMap((s) => METRICAS.map((m) => ({ period: s.period, metric: m, value: s.payload[m] ?? null, currency: s.currency, snapshotId: s.id }))));
+      return ok(
+        store.maisRecentes(id).flatMap((s) => {
+          // as métricas-base sempre aparecem (ausente = null); extras e quebra por produto, só as presentes
+          const nomes = [...new Set([...METRICAS, ...Object.keys(s.payload)])];
+          return nomes.map((m) => ({ period: s.period, metric: m, value: s.payload[m] ?? null, currency: s.currency, snapshotId: s.id }));
+        }),
+      );
     if (metodo === "GET" && metrica) {
-      if (!METRICAS.includes(metrica as Metrica)) return naoEncontrado;
-      return ok(store.maisRecentes(id).map((s) => ({ period: s.period, value: s.payload[metrica] ?? null, currency: s.currency, snapshotId: s.id })));
+      const nome = decodeURIComponent(metrica);
+      if (!ehMetricaDeSnapshot(nome)) return naoEncontrado;
+      return ok(store.maisRecentes(id).map((s) => ({ period: s.period, value: s.payload[nome] ?? null, currency: s.currency, snapshotId: s.id })));
     }
     if (metodo === "POST" && sub === "coletas")
       return corpo().then((e) => {
