@@ -23,6 +23,10 @@ export interface DepsRodadasApi {
   decorar<T extends { id: string }>(t: T): T;
   /** Entrega da Execução (ticket 07): commit final, branch+SHA ou PR. Lança ErroEntrega. */
   entregarExecucao(p: { tarefaId: string; titulo: string; resumo: string; workspace: string }): Promise<Entrega>;
+  /** Contexto da Tarefa (null se não houver). */
+  contextoDaTarefa(tarefaId: string): string | null | undefined;
+  /** Grava nova versão do Contexto consolidado do Contexto da Tarefa, com origem na Rodada. */
+  atualizarConsolidado(tarefaId: string, texto: string, autor: string, rodadaId: string | null): void;
 }
 
 const NAO_ENCONTRADO: Resposta = { status: 404, corpo: { error: "Não encontrado" } };
@@ -118,6 +122,12 @@ export function rotaRodadas(
     const b = await corpo();
     const para = t.phase === "Exploração" ? "Plano pronto para aprovação" : "Em validação";
     const resumo = typeof b.resumo === "string" ? b.resumo.trim() : "";
+    // Contexto consolidado (RF12): o agente o atualiza ao entregar; validado antes de mudar qualquer coisa.
+    if (b.consolidado !== undefined && b.consolidado !== null && (typeof b.consolidado !== "string" || !b.consolidado.trim()))
+      throw new ErroValidacao("consolidado deve ser texto não vazio");
+    const consolidado = typeof b.consolidado === "string" ? b.consolidado : undefined;
+    if (consolidado !== undefined && !d.contextoDaTarefa(id))
+      return { status: 409, corpo: { error: "A Tarefa não tem Contexto para receber o consolidado" } };
     // Na Exploração a entrega traz o plano (comentário tipado "plano") e a Área prevista; valida antes de mudar qualquer coisa.
     let plano = "";
     let areaPrevista: string[] | undefined;
@@ -143,6 +153,11 @@ export function rotaRodadas(
       }
       d.rodadas.registrarEvento(rodada.id, "entrega", { ...entrega });
       motivo = `${resumo ? `${resumo} · ` : ""}${entrega.prUrl ? `PR ${entrega.prUrl}` : `branch ${entrega.branch}`} · SHA ${entrega.sha}`;
+    }
+    // Nova versão do consolidado só depois de a entrega ter dado certo; origem = a Rodada (o agente nunca aprova).
+    if (consolidado !== undefined) {
+      const rodadaId = d.rodadas.ativaDaTarefa(id) ?? d.rodadas.listarDaTarefa(id).at(-1)?.id;
+      d.atualizarConsolidado(id, consolidado, quem, rodadaId ?? null);
     }
     d.repo.transicionar(id, { autor: quem, tipo: "entregar", de: t.state, para, motivo });
     return { status: 200, corpo: { ...d.decorar({ ...t, state: para }), ...(entrega ? { entrega } : {}) } };

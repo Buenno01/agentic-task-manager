@@ -11,6 +11,8 @@ export interface VersaoConsolidado {
   author: string;
   /** Versão restaurada, quando esta versão é uma reversão. */
   revertedFrom: number | null;
+  /** Rodada de origem, quando a versão foi gravada por uma Rodada. */
+  rodadaId: string | null;
   createdAt: string;
 }
 
@@ -21,7 +23,7 @@ export interface TrechoBusca {
 }
 
 const COLUNAS =
-  "context_id AS contextId, version, text, task_id AS taskId, author, reverted_from AS revertedFrom, created_at AS createdAt";
+  "context_id AS contextId, version, text, task_id AS taskId, author, reverted_from AS revertedFrom, rodada_id AS rodadaId, created_at AS createdAt";
 
 /**
  * Armazém do Contexto consolidado. `consolidado_versoes` guarda o texto de cada versão;
@@ -45,11 +47,14 @@ export function abrirConsolidado(path: string) {
       text, context_id UNINDEXED, version UNINDEXED, tokenize = 'unicode61 remove_diacritics 2'
     );
   `);
+  // Rodada de origem (RF12): coluna adicionada depois da criação da tabela.
+  if (!(db.prepare("PRAGMA table_info(consolidado_versoes)").all() as { name: string }[]).some((c) => c.name === "rodada_id"))
+    db.exec("ALTER TABLE consolidado_versoes ADD COLUMN rodada_id TEXT");
   const atualSql = db.prepare(`SELECT ${COLUNAS} FROM consolidado_versoes WHERE context_id = ? ORDER BY version DESC LIMIT 1`);
   const umaSql = db.prepare(`SELECT ${COLUNAS} FROM consolidado_versoes WHERE context_id = ? AND version = ?`);
   const listaSql = db.prepare(`SELECT ${COLUNAS} FROM consolidado_versoes WHERE context_id = ? ORDER BY version`);
   const insSql = db.prepare(
-    "INSERT INTO consolidado_versoes (context_id, version, text, task_id, author, reverted_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO consolidado_versoes (context_id, version, text, task_id, author, reverted_from, rodada_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const insFts = db.prepare("INSERT INTO consolidado_fts (text, context_id, version) VALUES (?, ?, ?)");
   const buscaSql = db.prepare(
@@ -59,11 +64,11 @@ export function abrirConsolidado(path: string) {
 
   const atual = (contextId: string) => atualSql.get(contextId) as unknown as VersaoConsolidado | undefined;
 
-  function adicionar(contextId: string, text: string, taskId: string | null, author: string, revertedFrom: number | null) {
+  function adicionar(contextId: string, text: string, taskId: string | null, author: string, revertedFrom: number | null, rodadaId: string | null) {
     db.exec("BEGIN IMMEDIATE");
     try {
       const version = (atual(contextId)?.version ?? 0) + 1;
-      insSql.run(contextId, version, text, taskId, author, revertedFrom, new Date().toISOString());
+      insSql.run(contextId, version, text, taskId, author, revertedFrom, rodadaId, new Date().toISOString());
       insFts.run(text, contextId, version);
       db.exec("COMMIT");
       return umaSql.get(contextId, version) as unknown as VersaoConsolidado;
@@ -78,13 +83,13 @@ export function abrirConsolidado(path: string) {
     versao: (contextId: string, version: number) =>
       umaSql.get(contextId, version) as unknown as VersaoConsolidado | undefined,
     listar: (contextId: string) => listaSql.all(contextId) as unknown as VersaoConsolidado[],
-    atualizar: (contextId: string, text: string, taskId: string | null, author: string) =>
-      adicionar(contextId, text, taskId, author, null),
+    atualizar: (contextId: string, text: string, taskId: string | null, author: string, rodadaId: string | null = null) =>
+      adicionar(contextId, text, taskId, author, null, rodadaId),
     /** Cria uma NOVA versão com o texto de `version`; o histórico permanece intacto. */
-    reverter(contextId: string, version: number, taskId: string | null, author: string) {
+    reverter(contextId: string, version: number, taskId: string | null, author: string, rodadaId: string | null = null) {
       const alvo = umaSql.get(contextId, version) as unknown as VersaoConsolidado | undefined;
       if (!alvo) return undefined;
-      return adicionar(contextId, alvo.text, taskId, author, version);
+      return adicionar(contextId, alvo.text, taskId, author, version, rodadaId);
     },
     /** Busca full-text em todas as versões; os termos da consulta são tratados como texto literal. */
     buscar(consulta: string): TrechoBusca[] {
