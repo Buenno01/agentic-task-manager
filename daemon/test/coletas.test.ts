@@ -215,3 +215,14 @@ test("variável de ambiente do token ausente: a Coleta falha sem chamar o client
   assert.match(coleta.error, new RegExp(VAR_TOKEN));
   assert.equal(cliente.tokensRecebidos.length, 0);
 });
+
+test("período padrão é o dia civil anterior no fuso da loja, não o dia UTC", async () => {
+  // 2026-03-10 12:00Z já é 11/03 01:00 em Auckland (UTC+13): o dia anterior da loja é 10/03, não 09/03.
+  const c = await novoColetor({ recollectWindowDays: 1, params: { timezone: "Pacific/Auckland" } });
+  assert.equal((await coletar(c.id)).period, "2026-03-10");
+});
+
+test("frequência 'semanal' não é aceita: só a Coleta diária existe", async () => {
+  const contextId = await contexto();
+  assert.equal((await send("POST", "/coletores", { contextId, source: "falso", tokenEnv: VAR_TOKEN, frequency: "semanal" })).status, 400);
+});

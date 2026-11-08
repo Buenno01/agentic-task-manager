@@ -8,8 +8,6 @@ export const FECHAMENTO_PADRAO: FrequenciaFechamento = "semanal";
 
 /** Hora do fechamento (07:00 no fuso da loja), em minutos desde 00:00. */
 const MINUTO_FECHAMENTO = 7 * 60;
-/** Teto de fechamentos recuperados de uma vez no boot, para uma máquina muito tempo desligada não gerar enxurrada. */
-export const MAX_FECHAMENTOS_RECUPERADOS = 8;
 
 export interface Fechamento {
   frequencia: "semanal" | "mensal";
@@ -50,16 +48,11 @@ export function ultimoFechamento(ms: number, timezone: string, frequencia: "sema
 }
 
 /**
- * Fechamentos a processar: se já houve algum (`ultimaChave`), todos os posteriores até o último ocorrido
- * (recuperação do boot, no máximo `MAX_FECHAMENTOS_RECUPERADOS`); senão, só o último.
+ * Fechamentos a processar: todos os posteriores a `ultimaChave` até o último ocorrido, em ordem
+ * (recuperação do boot, sem teto: nenhum período perdido é descartado em silêncio).
  */
-export function fechamentosPendentes(ms: number, timezone: string, frequencia: "semanal" | "mensal", ultimaChave: string | undefined): Fechamento[] {
-  const ultimo = ultimoFechamento(ms, timezone, frequencia);
+export function fechamentosPendentes(ms: number, timezone: string, frequencia: "semanal" | "mensal", ultimaChave: string): Fechamento[] {
   const fila: Fechamento[] = [];
-  for (let chave = ultimo.chave; fila.length < MAX_FECHAMENTOS_RECUPERADOS; chave = anterior(frequencia, chave)) {
-    if (ultimaChave !== undefined && chave <= ultimaChave) break;
-    fila.unshift(descrever(frequencia, chave));
-    if (ultimaChave === undefined) break;
-  }
+  for (let chave = ultimoFechamento(ms, timezone, frequencia).chave; chave > ultimaChave; chave = anterior(frequencia, chave)) fila.unshift(descrever(frequencia, chave));
   return fila;
 }

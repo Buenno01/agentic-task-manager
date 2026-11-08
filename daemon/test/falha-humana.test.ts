@@ -174,3 +174,15 @@ test("analytics falhou (transitório) nunca gera Tarefa", async () => {
   }
   assert.equal((await tarefasDoContexto()).length, 0);
 });
+
+test("variável de ambiente do token ausente é falha humana: uma Tarefa Novo deduplicada, mais Lacuna", async () => {
+  const c = await novoColetor();
+  delete process.env[VAR_TOKEN];
+  for (let i = 0; i < 2; i++) assert.equal((await coletar(c.id)).state, "falhou");
+  const tarefas = await tarefasDoContexto();
+  assert.equal(tarefas.length, 1);
+  assert.equal(tarefas[0].state, "Novo");
+  assert.match(tarefas[0].title, /variável de ambiente/i);
+  assert.match(tarefas[0].description, new RegExp(VAR_TOKEN));
+  assert.equal((await json("GET", `/coletores/${c.id}/lacunas`)).length, 1);
+});

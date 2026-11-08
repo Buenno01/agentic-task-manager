@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import type { CausaParcial } from "../coleta/shopifyql.ts";
 import type { MudancaMetrica } from "../domain/revisao.ts";
 
 export interface Revisao {
@@ -25,14 +26,14 @@ export interface Lacuna {
   /** Lacuna parcial: o período tem Snapshot, mas faltam métricas (`missing`). */
   partial: boolean;
   /** Categoria da causa de uma Lacuna parcial (`analytics-indisponivel` = plano/escopo sem analytics, exige ação humana); `null` na Lacuna total. */
-  cause: string | null;
+  cause: CausaParcial | null;
   /** Métricas ausentes do período (vazio na Lacuna total). */
   missing: string[];
 }
 
 /** Dados de uma Lacuna parcial. */
 export interface ParcialDaLacuna {
-  causa: string;
+  causa: CausaParcial;
   faltando: string[];
 }
 
@@ -57,7 +58,7 @@ const linhaLacuna = (r: Record<string, unknown>): Lacuna => ({
   recoveredAt: (r.recovered_at as string | null) ?? null,
   recoveredByColetaId: (r.recovered_by_coleta_id as string | null) ?? null,
   partial: r.partial === 1,
-  cause: (r.cause as string | null) ?? null,
+  cause: ((r.cause as string | null) ?? null) as CausaParcial | null,
   missing: JSON.parse((r.missing as string | null) ?? "[]"),
 });
 

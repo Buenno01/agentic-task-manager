@@ -161,19 +161,24 @@ test("recoletar ainda sem analytics não duplica a Lacuna parcial nem gera Revis
   assert.deepEqual(await json("GET", `/coletores/${c.id}/revisoes`), []);
 });
 
-test("analytics que falha depois de já ter sido coletado preserva os valores e não abre Lacuna", async () => {
+test("analytics que falha depois de já ter sido coletado grava null (nunca o valor antigo), com Revisão e Lacuna parcial", async () => {
   loja.analytics[DIA] = { sessions: 800, conversionRate: 0.0025 };
   const c = await novoColetor();
   await coletar(c.id);
   loja.analytics = {};
   loja.analyticsSemAcesso = true;
   const coleta = await coletar(c.id);
-  assert.equal(coleta.partial, false);
+  assert.equal(coleta.partial, true);
   const m = await consolidado(c.id);
-  assert.equal(m.sessions, 800);
-  assert.equal(m.conversion, 0.0025);
-  assert.deepEqual(await json("GET", `/coletores/${c.id}/lacunas`), []);
-  assert.deepEqual(await json("GET", `/coletores/${c.id}/revisoes`), []);
+  assert.equal(m.sessions, null);
+  assert.equal(m.conversion, null);
+  const [lacuna] = await json("GET", `/coletores/${c.id}/lacunas`);
+  assert.equal(lacuna.partial, true);
+  const [revisao] = await json("GET", `/coletores/${c.id}/revisoes`);
+  assert.deepEqual(revisao.changes, [
+    { metric: "conversion", previous: 0.0025, new: null },
+    { metric: "sessions", previous: 800, new: null },
+  ]);
 });
 
 test("falha nos pedidos continua sendo Lacuna total (não parcial)", async () => {

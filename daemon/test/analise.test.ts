@@ -125,7 +125,9 @@ test("novas Anomalias e fechamentos se anexam à Tarefa de análise aberta, sem 
   assert.equal(ts.length, 1);
   const antes = (await evidencias(d, ts[0].id)).length;
   assert.equal(antes, 2);
-  // Fechamento semanal com a Tarefa ainda aberta: o backfill do agendador pode somar Anomalias, mas nenhuma Tarefa nova.
+  // Um Coletor existente há uma semana: o fechamento semanal seguinte anexa à Tarefa aberta, sem criar outra.
+  await d.varrerColetas(); // registra o fechamento já ocorrido (não gera nada)
+  agoraMs = Date.parse("2026-03-16T12:00:00Z");
   await d.varrerColetas();
   ts = await analises(d);
   assert.equal(ts.length, 1);
@@ -140,6 +142,8 @@ test("Tarefa de análise rejeitada deixa de ser 'aberta': o próximo evento cria
   await semear(d, c.id, metricas(10));
   const [primeira] = await analises(d);
   assert.equal((await send(d, "POST", `/tarefas/${primeira.id}/rejeitar`, {})).status, 200);
+  await d.varrerColetas(); // registra o fechamento já ocorrido
+  agoraMs = Date.parse("2026-03-16T12:00:00Z");
   await d.varrerColetas(); // fechamento semanal
   const ts = await analises(d);
   assert.equal(ts.length, 2);
@@ -162,42 +166,61 @@ test("com analise_automatica a Tarefa nasce 'Autorizada para explorar', com a pr
   assert.match(auto.motivo, /analise_automatica|análise automática/i);
 });
 
-test("fechamento semanal cria Tarefa mesmo sem Anomalia e não se repete", async () => {
+test("Coletor novo não gera análise do fechamento passado; só os fechamentos seguintes valem, sem repetir", async () => {
   const d = await iniciar();
   const c = await novoColetor(d);
-  await d.varrerColetas(); // backfill; terça 10/03 09:00 -> fechamento de segunda 09/03 07:00 (semana 02 a 08/03)
+  await d.varrerColetas(); // backfill; terça 10/03 09:00: o fechamento de 09/03 é anterior ao Coletor
+  assert.deepEqual(await analises(d), []);
+  agoraMs = Date.parse("2026-03-16T12:00:00Z"); // segunda 16/03 09:00: fechou a semana de 09 a 15/03
+  await d.varrerColetas();
   const ts = await analises(d);
   assert.equal(ts.length, 1);
   assert.equal(ts[0].contextId, c.contextId);
   const ev = await evidencias(d, ts[0].id);
   assert.equal(ev.length, 1);
-  assert.match(ev[0].texto, /2026-03-02/);
-  assert.match(ev[0].texto, /2026-03-08/);
+  assert.match(ev[0].texto, /2026-03-09/);
+  assert.match(ev[0].texto, /2026-03-15/);
   await d.varrerColetas();
   assert.equal((await evidencias(d, ts[0].id)).length, 1);
+});
+
+test("backfill de histórico não cria Anomalia nem Tarefa de análise", async () => {
+  // Um mês de histórico com um dia fora do padrão no meio: Coletor novo, nada de Anomalia por histórico.
+  cliente.definir("2026-02-10", { moeda: "BRL", metricas: metricas(1) });
+  for (const p of ["2026-01-13", "2026-01-20", "2026-01-27", "2026-02-03"]) cliente.definir(p, { moeda: "BRL", metricas: metricas(20) });
+  const d = await iniciar();
+  const c = await novoColetor(d);
+  await d.varrerColetas();
+  assert.deepEqual(await json(d, "GET", `/coletores/${c.id}/anomalias`), []);
+  assert.deepEqual(await analises(d), []);
 });
 
 test("segunda antes das 07:00 ainda não fechou a semana: vale o fechamento da segunda anterior", async () => {
   agoraMs = Date.parse("2026-03-09T09:30:00Z"); // segunda 06:30 em São Paulo
   const d = await iniciar();
   await novoColetor(d);
+  await d.varrerColetas(); // registra o fechamento de 02/03 (o de 09/03 ainda não ocorreu)
+  assert.deepEqual(await analises(d), []);
+  agoraMs = Date.parse("2026-03-09T10:30:00Z"); // 07:30: fechou a semana de 02 a 08/03
   await d.varrerColetas();
   const [t] = await analises(d);
   const [e] = await evidencias(d, t.id);
-  assert.match(e.texto, /2026-02-23/);
-  assert.match(e.texto, /2026-03-01/);
+  assert.match(e.texto, /2026-03-02/);
+  assert.match(e.texto, /2026-03-08/);
 });
 
 test("frequência de fechamento: 'mensal' analisa o mês anterior; 'nenhum' não fecha", async () => {
   const d = await iniciar();
   const mensal = await novoColetor(d, { params: { closingFrequency: "mensal" } });
   await d.varrerColetas();
+  agoraMs = Date.parse("2026-04-01T12:00:00Z"); // 1º de abril 09:00: fechou março
+  await d.varrerColetas();
   const [t] = await analises(d);
   assert.equal(t.contextId, mensal.contextId);
   const [e] = await evidencias(d, t.id);
   assert.match(e.texto, /Fechamento mensal/);
-  assert.match(e.texto, /2026-02-01/);
-  assert.match(e.texto, /2026-02-28/);
+  assert.match(e.texto, /2026-03-01/);
+  assert.match(e.texto, /2026-03-31/);
 });
 
 test("fechamento 'nenhum' não cria Tarefa", async () => {
@@ -214,25 +237,27 @@ test("closingFrequency inválido é recusado na criação do Coletor", async () 
   assert.equal(res.status, 400);
 });
 
-test("fechamentos perdidos com a máquina desligada são recuperados no boot", async () => {
-  agoraMs = Date.parse("2026-03-02T12:00:00Z"); // segunda 09:00 SP: fechamento de 02/03 vale
+test("fechamentos perdidos com a máquina desligada são recuperados no boot, todos, sem teto", async () => {
+  agoraMs = Date.parse("2026-03-02T12:00:00Z"); // segunda 09:00 SP
   let d = await iniciar();
   const c = await novoColetor(d);
-  await d.varrerColetas();
+  await d.varrerColetas(); // registra o fechamento de 02/03
+  agoraMs = Date.parse("2026-03-09T12:00:00Z");
+  await d.varrerColetas(); // fechamento de 09/03
   const [primeira] = await analises(d);
   assert.equal((await send(d, "POST", `/tarefas/${primeira.id}/rejeitar`, {})).status, 200);
   await d.close();
   daemons = [];
-  // máquina desligada por duas semanas: os fechamentos de 09/03 e 16/03 ficaram para trás
-  agoraMs = Date.parse("2026-03-16T12:00:00Z");
+  // máquina desligada por 12 semanas: 12 fechamentos ficaram para trás (mais que qualquer teto razoável)
+  agoraMs = Date.parse("2026-06-01T12:00:00Z");
   d = await iniciar();
   await d.varrerColetas();
   const ts = (await analises(d)).filter((t) => t.id !== primeira.id);
   assert.equal(ts.length, 1);
   const ev = await evidencias(d, ts[0].id);
-  assert.equal(ev.length, 2);
+  assert.equal(ev.length, 12);
   const texto = ev.map((e) => e.texto).join("\n");
-  assert.match(texto, /2026-03-02/); // semana fechada em 09/03
   assert.match(texto, /2026-03-09/); // semana fechada em 16/03
+  assert.match(texto, /2026-05-25/); // semana fechada em 01/06
   assert.equal(c.contextId, ts[0].contextId);
 });

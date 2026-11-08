@@ -17,6 +17,8 @@ export interface OpcoesShopify {
   timeoutMs?: number;
   /** Pedidos por página (padrão 100). */
   porPagina?: number;
+  /** Relógio (ms) para interpretar Retry-After em data HTTP; testes injetam. */
+  agora?: () => number;
 }
 
 const CONSULTA = `query Pedidos($query: String!, $first: Int!, $after: String) {
@@ -77,6 +79,22 @@ function esperaPeloCusto(custo: Custo | undefined): number {
 
 const dormirDeVerdade = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Teto de qualquer espera vinda do servidor (Retry-After, custo GraphQL): nunca bloqueia a Coleta além disso. */
+export const ESPERA_MAXIMA_MS = 60_000;
+const limitar = (ms: number) => Math.min(ms, ESPERA_MAXIMA_MS);
+
+/** Retry-After em segundos ou em data HTTP; `undefined` se ausente ou inválido. */
+export function esperaDoRetryAfter(valor: string | undefined, agoraMs: number): number | undefined {
+  if (valor === undefined || valor.trim() === "") return undefined;
+  const s = Number(valor);
+  if (Number.isFinite(s)) return s >= 0 ? s * 1000 : undefined;
+  const data = Date.parse(valor);
+  return Number.isNaN(data) ? undefined : Math.max(0, data - agoraMs);
+}
+
+/** Corpo bruto da resposta com erro, para depuração (limitado; o mascaramento é de quem grava). */
+const brutoDe = (corpo: unknown) => (typeof corpo === "string" ? corpo : JSON.stringify(corpo ?? null)).slice(0, 20_000);
+
 /** Coletor Shopify real (Admin API GraphQL, somente leitura): pedidos, receita e produtos do dia civil da loja. */
 export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
   const http = opts.http ?? httpShopifyReal;
@@ -85,11 +103,13 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
   const backoffMs = opts.backoffMs ?? 1000;
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const porPagina = opts.porPagina ?? 100;
+  const agora = opts.agora ?? Date.now;
 
-  /** Uma requisição com retentativa: 429 espera o Retry-After; 5xx, timeout e THROTTLED, o backoff ou o custo. */
+  /** Uma requisição com retentativa: 429/5xx esperam o Retry-After (ou o backoff); timeout e THROTTLED, o backoff ou o custo. */
   async function consultar(pedido: PedidoColeta, url: string, texto: string, variables: Record<string, unknown>) {
     let ultimo = new Error("falha desconhecida");
     for (let n = 1; n <= tentativas; n++) {
+      let bruto: string | undefined;
       try {
         let res: RespostaShopify;
         try {
@@ -103,17 +123,17 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
           const timeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
           throw new ErroTransitorio(timeout ? `Shopify: timeout após ${timeoutMs} ms` : "Shopify: falha de rede");
         }
+        if (res.status !== 200) bruto = brutoDe(res.body);
         if (res.status === 401) throw new ErroExigeAcaoHumana("token", "Shopify recusou a credencial (HTTP 401): token inválido ou expirado");
         if (res.status === 403) throw new ErroExigeAcaoHumana("escopo", "Shopify negou o acesso (HTTP 403): token sem escopo ou sem permissão");
         if (res.status === 404) throw new ErroExigeAcaoHumana("loja", "Shopify não encontrou a loja (HTTP 404)");
-        if (res.status === 429) {
-          const s = Number(res.headers["retry-after"]);
-          throw new ErroTransitorio("Shopify: limite de requisições (HTTP 429)", Number.isFinite(s) && s >= 0 ? s * 1000 : undefined);
-        }
-        if (res.status >= 500) throw new ErroTransitorio(`Shopify indisponível (HTTP ${res.status})`);
+        const retryAfter = esperaDoRetryAfter(res.headers["retry-after"], agora());
+        if (res.status === 429) throw new ErroTransitorio("Shopify: limite de requisições (HTTP 429)", retryAfter);
+        if (res.status >= 500) throw new ErroTransitorio(`Shopify indisponível (HTTP ${res.status})`, retryAfter);
         if (res.status !== 200) throw new ErroFatal(`Shopify respondeu HTTP ${res.status}`);
         const corpo = res.body as { data?: any; errors?: Array<{ message?: string; extensions?: { code?: string } }>; extensions?: { cost?: Custo } };
         if (corpo.errors?.length) {
+          bruto = brutoDe(res.body);
           if (corpo.errors.some((e) => e.extensions?.code === "THROTTLED"))
             throw new ErroTransitorio("Shopify: custo GraphQL excedido (THROTTLED)", esperaPeloCusto(corpo.extensions?.cost) || undefined);
           if (corpo.errors.some((e) => e.extensions?.code === "ACCESS_DENIED"))
@@ -122,9 +142,10 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
         }
         return { data: corpo.data, custo: corpo.extensions?.cost };
       } catch (e) {
+        if (e instanceof Error && bruto !== undefined) (e as Error & { respostaBruta?: string }).respostaBruta = bruto;
         if (e instanceof ErroFatal || e instanceof ErroExigeAcaoHumana || !(e instanceof ErroTransitorio)) throw e;
         ultimo = e;
-        if (n < tentativas) await dormir(e.esperaMs ?? backoffMs * 2 ** (n - 1));
+        if (n < tentativas) await dormir(limitar(e.esperaMs ?? backoffMs * 2 ** (n - 1)));
       }
     }
     throw ultimo;
@@ -166,7 +187,7 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
         if (!data.orders.pageInfo.hasNextPage) break;
         after = data.orders.pageInfo.endCursor;
         const espera = esperaPeloCusto(custo);
-        if (espera) await dormir(espera);
+        if (espera) await dormir(limitar(espera));
       }
 
       const liquida = arredondar(bruta - reembolsos);

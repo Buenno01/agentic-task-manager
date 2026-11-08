@@ -9,6 +9,7 @@ import { resolverContexto } from "../domain/contexto.ts";
 import { criarWorkspaces } from "../workspace/workspace.ts";
 import { liberarSeTerminal, rotaWorkspaces, type DepsWorkspaces } from "./workspaces.ts";
 import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { abrirAnexos } from "../db/anexos.ts";
 import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos, tipoSeguro } from "./anexos.ts";
 import { ErroCorpoGrande, LIMITE_JSON, lerCorpoLimitado } from "./corpo.ts";
@@ -133,7 +134,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const tokenGithub = () => opts.githubToken ?? process.env.ATM_GITHUB_TOKEN;
   // Mascarador (ADR-0001/0007): tokens humano e de agentes, token do GitHub e chaves de provedor do ambiente.
   const mascarador = criarMascarador(() => segredosDasCredenciais(credenciais), () => segredosDoAmbiente(), () => [tokenGithub()]);
-  const logs = criarLogs(opts.logsDir ?? process.env.ATM_LOGS_DIR ?? "/data/logs", mascarador);
+  const logsDir = opts.logsDir ?? process.env.ATM_LOGS_DIR ?? "/data/logs";
+  const logs = criarLogs(logsDir, mascarador);
   const origensCors = opts.corsOrigins?.length ? opts.corsOrigins : CORS_ORIGENS_PADRAO;
   const repo = abrirBanco(opts.dbPath, mascarador.texto);
   const ctx = abrirContextos(opts.dbPath);
@@ -181,6 +183,12 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     anomalias: anomaliasDb,
     aoDetectarAnomalia: analise.aoDetectarAnomalia,
     aoVarrerColetor: analise.processarFechamentos,
+    // Resposta crua com erro, já mascarada, só em disco (`<logsDir>/coletas/<coleta>/<periodo>.txt`); EACCES é tratado por quem chama.
+    gravarRespostaBruta: (coletaId, period, texto) => {
+      const dir = join(logsDir, "coletas", coletaId);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${period}.txt`), texto);
+    },
     aoFalharComAcaoHumana: (f) =>
       registrarFalhaHumana({
         coletorId: f.coletor.id,
