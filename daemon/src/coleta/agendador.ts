@@ -1,6 +1,6 @@
 import { agendaDoColetor, BACKFILL_DIAS, somarDias, ultimoPeriodoDevido } from "../domain/agenda.ts";
-import type { DepsColetas } from "../api/coletas.ts";
-import { recolher } from "../api/recoleta.ts";
+import type { DepsColetas } from "./deps.ts";
+import { recolher } from "./recoleta.ts";
 
 export interface OpcoesAgendador {
   /** Agenda a varredura periódica e devolve o cancelamento. Injetável: os testes não esperam timers. */

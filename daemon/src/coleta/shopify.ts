@@ -1,7 +1,7 @@
 import type { ClienteColeta, PedidoColeta, RespostaColeta } from "./cliente.ts";
 import { httpShopifyReal, type HttpShopify, type RespostaShopify } from "./shopify-http.ts";
 import { agendaDoColetor, dataNoFuso, somarDias } from "../domain/agenda.ts";
-import { lojaShopify } from "../domain/coleta.ts";
+import { chaveDeProduto, lojaShopify } from "../domain/coleta.ts";
 import { coletarAnalytics, ErroAcessoNegado } from "./shopifyql.ts";
 import { ErroExigeAcaoHumana } from "./falha-humana.ts";
 
@@ -179,8 +179,8 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
       };
       if (pedidos > 0) metricas.averageTicket = arredondar(liquida / pedidos);
       for (const [id, p] of porProduto) {
-        metricas[`produto:${id}:unidades`] = p.unidades;
-        metricas[`produto:${id}:receita`] = arredondar(p.receita);
+        metricas[chaveDeProduto(id, "unidades")] = p.unidades;
+        metricas[chaveDeProduto(id, "receita")] = arredondar(p.receita);
       }
       // Sessões e conversão (ShopifyQL, módulo isolado): se faltarem, ficam null (nunca zero) e a Coleta é parcial.
       const analytics = await coletarAnalytics(async (texto, variaveis) => {

@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { ErroValidacao } from "./tarefa.ts";
-import { agendaDoColetor } from "./agenda.ts";
+import { agendaDoColetor, dataNoFuso, somarDias } from "./agenda.ts";
 import { frequenciaDeFechamento } from "./fechamento.ts";
 
 /** Fontes de dados conhecidas. Contrato simples, sem plataforma de plugins (ADR-0003). */
 export const FONTES = ["falso", "shopify"] as const;
 export type Fonte = (typeof FONTES)[number];
 
-export const FREQUENCIAS = ["diaria", "semanal"] as const;
+export const FREQUENCIAS = ["diaria"] as const;
 export type Frequencia = (typeof FREQUENCIAS)[number];
 
 /** Métricas da Coleta (RF25). Ausente no Snapshot fica `null`, nunca zero. */
@@ -16,9 +16,14 @@ export type Metrica = (typeof METRICAS)[number];
 
 /** Métricas extras da Shopify, sem limiar de Anomalia: receita bruta, reembolsos e unidades do dia. */
 export const METRICAS_EXTRAS = ["grossRevenue", "refunds", "units", "sessions"] as const;
-/** Quebra por produto: `produto:<id>:unidades` e `produto:<id>:receita`. */
-const METRICA_PRODUTO = /^produto:\d+:(unidades|receita)$/;
-export const ehMetricaDeSnapshot = (nome: string) => (METRICAS as readonly string[]).includes(nome) || (METRICAS_EXTRAS as readonly string[]).includes(nome) || METRICA_PRODUTO.test(nome);
+/** Quebra por produto: `produto:<id>:unidades` e `produto:<id>:receita`. Única fonte da chave. */
+export const chaveDeProduto = (id: string, campo: "unidades" | "receita") => `produto:${id}:${campo}`;
+const METRICA_PRODUTO = /^produto:(\d+):(unidades|receita)$/;
+export function lerChaveDeProduto(nome: string): { id: string; campo: "unidades" | "receita" } | undefined {
+  const m = nome.match(METRICA_PRODUTO);
+  return m ? { id: m[1], campo: m[2] as "unidades" | "receita" } : undefined;
+}
+export const ehMetricaDeSnapshot = (nome: string) => (METRICAS as readonly string[]).includes(nome) || (METRICAS_EXTRAS as readonly string[]).includes(nome) || lerChaveDeProduto(nome) !== undefined;
 
 /** Limiares de variação (%) por métrica. */
 export type Limiares = Record<Metrica, number>;
@@ -92,9 +97,9 @@ export function lojaShopify(params: Record<string, unknown>): { shop: string; ap
   return { shop: params.shop, apiVersion };
 }
 
-/** Período pedido (AAAA-MM-DD) ou, por padrão, o dia anterior ao relógio. */
-export function periodoDaColeta(pedido: unknown, agoraMs: number): string {
-  if (pedido === undefined || pedido === null) return new Date(agoraMs - 86_400_000).toISOString().slice(0, 10);
+/** Período pedido (AAAA-MM-DD) ou, por padrão, o dia civil anterior ao relógio no fuso da loja. */
+export function periodoDaColeta(pedido: unknown, agoraMs: number, timezone: string): string {
+  if (pedido === undefined || pedido === null) return somarDias(dataNoFuso(agoraMs, timezone).data, -1);
   if (typeof pedido !== "string" || !DATA.test(pedido) || Number.isNaN(Date.parse(pedido))) throw new ErroValidacao("period deve ser AAAA-MM-DD");
   return pedido;
 }

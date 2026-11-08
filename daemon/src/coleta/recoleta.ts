@@ -1,4 +1,4 @@
-import type { DepsColetas } from "./coletas.ts";
+import type { DepsColetas } from "./deps.ts";
 import { hashDoSnapshot, normalizarMetricas } from "../domain/coleta.ts";
 import { diferencas, janelaDeRecoleta } from "../domain/revisao.ts";
 import { detectarAnomalias } from "../coleta/anomalia.ts";

@@ -40,7 +40,8 @@ import { criarMascarador, segredosDasCredenciais, segredosDoAmbiente } from "../
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { abrirColetas } from "../db/coletas.ts";
-import { rotaColetas, type DepsColetas } from "./coletas.ts";
+import { rotaColetas } from "./coletas.ts";
+import type { DepsColetas } from "../coleta/deps.ts";
 import { abrirAnomalias } from "../db/anomalias.ts";
 import { abrirAnalises } from "../db/analise.ts";
 import { criarAnalise } from "../coleta/analise.ts";
@@ -179,7 +180,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     revisoes: revisoesDb,
     anomalias: anomaliasDb,
     aoDetectarAnomalia: analise.aoDetectarAnomalia,
-    aoVarrerColetor: analise.fechar,
+    aoVarrerColetor: analise.processarFechamentos,
     aoFalharComAcaoHumana: (f) =>
       registrarFalhaHumana({
         coletorId: f.coletor.id,

@@ -97,7 +97,7 @@ export function criarAnalise(d: DepsAnalise) {
       }
     },
     /** Processa os fechamentos de período devidos (inclusive os perdidos com a máquina desligada). */
-    fechar(coletor: Coletor) {
+    processarFechamentos(coletor: Coletor) {
       const frequencia = frequenciaDeFechamento(coletor.params);
       if (frequencia === "nenhum") return;
       const { timezone } = agendaDoColetor(coletor.params);
