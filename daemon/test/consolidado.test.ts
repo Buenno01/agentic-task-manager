@@ -121,7 +121,7 @@ test("versões ficam em Contextos independentes e persistem após reiniciar", as
   assert.equal((await json("GET", `/contextos/${a}/consolidado`)).text, "só em A");
 });
 
-test("texto é indexável por FTS5 (base para a busca do ticket 13)", async () => {
+test("texto é indexável por FTS5 (base para a busca textual)", async () => {
   const { abrirConsolidado } = await import("../src/db/consolidado.ts");
   const ctx = await novoContexto();
   await atualizar(ctx, "Regra: nunca fazer deploy na sexta-feira");

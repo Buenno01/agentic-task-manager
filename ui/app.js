@@ -105,7 +105,7 @@ function avisoSobreposicao(li, t) {
   }
 }
 
-// Fase Execução (ticket 08): ações humanas por estado, e conversão com o contrato mínimo.
+// Fase Execução (SPEC seção 5, RF2): ações humanas por estado, e conversão com o contrato mínimo.
 const ACOES_EXECUCAO = {
   "Na fila": ["iniciar-execucao"],
   "Em execução": ["aguardar-humano-execucao", "validar-execucao"],

@@ -1,4 +1,4 @@
-// Histórico da Tarefa (ticket 05): linha do tempo + novo comentário. Autônomo; aberto por evento "abrir-historico".
+// Histórico da Tarefa (RF3, RF9): linha do tempo + novo comentário. Autônomo; aberto por evento "abrir-historico".
 const API = new URLSearchParams(location.search).get("api") ?? "http://127.0.0.1:3000";
 const secao = document.getElementById("historico");
 const titulo = document.getElementById("historico-titulo");

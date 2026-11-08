@@ -25,7 +25,7 @@ if (!credenciais.agentes.orquestrador) {
 mkdirSync(dirname(dbPath), { recursive: true });
 const host = process.env.ATM_HOST ?? "127.0.0.1";
 const corsOrigins = process.env.ATM_CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);
-// ATM_EXECUTOR=hermes liga o adaptador do Hermes (ticket 12, ADR-0009); sem isso nenhum Executor está configurado.
+// ATM_EXECUTOR=hermes liga o adaptador do Hermes (ADR-0009); sem isso nenhum Executor está configurado.
 const nomeExecutor = process.env.ATM_EXECUTOR;
 if (nomeExecutor && nomeExecutor !== "hermes") {
   console.error(`ATM_EXECUTOR="${nomeExecutor}" desconhecido (valores aceitos: hermes). Recusando iniciar.`);

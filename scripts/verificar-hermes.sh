@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verificação manual do adaptador Hermes (ticket 12): roda UMA Tarefa de Execução de exemplo, de ponta a ponta,
+# Verificação manual do adaptador Hermes (ADR-0009): roda UMA Tarefa de Execução de exemplo, de ponta a ponta,
 # contra um repositório de teste temporário. CHAMA O MODELO REAL (custa dinheiro). Só roda com ATM_TESTE_HERMES=1.
 #
 # Pré-requisitos: `hermes` instalado e com provedor/chave configurados (`hermes chat -q ok` funciona), git, curl, node>=24,

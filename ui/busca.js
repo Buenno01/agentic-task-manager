@@ -1,4 +1,4 @@
-// Busca textual (ticket 13): caixa de busca sobre Tarefas, comentários, Contexto consolidado e anexos.
+// Busca textual (RF11): caixa de busca sobre Tarefas, comentários, Contexto consolidado e anexos.
 const API = new URLSearchParams(location.search).get("api") ?? "http://127.0.0.1:3000";
 const form = document.getElementById("busca-form");
 const saida = document.getElementById("busca-resultados");

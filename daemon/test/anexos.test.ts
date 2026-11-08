@@ -120,7 +120,7 @@ test("texto de PDF, docx e txt é extraído; imagem e planilha não", async () =
   assert.equal((await baixar(`/anexos/${i.id}/texto`)).status, 404);
 });
 
-test("texto extraído fica indexado e pesquisável (insumo do ticket 13)", async () => {
+test("texto extraído fica indexado e pesquisável (insumo da busca textual)", async () => {
   const id = await tarefa();
   const c = await contexto();
   const p = await (await subir(`/tarefas/${id}`, "r.pdf", pdf(["Relatório de vendas"]))).json();

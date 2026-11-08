@@ -13,7 +13,7 @@ export interface OpcoesOrquestrador {
   agendar?: (varrer: () => void) => () => void;
   /** Varre também a cada mudança de estado de Tarefa e ao fim de cada Rodada (padrão: sim). */
   aoMudarEstado?: boolean;
-  /** Relógio em ms (injetável; o backoff de falhas do ticket 04 usa este relógio). */
+  /** Relógio em ms (injetável; o backoff de falhas (ADR-0004) usa este relógio). */
   relogio?: () => number;
 }
 

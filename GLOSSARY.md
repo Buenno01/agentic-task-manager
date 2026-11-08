@@ -74,6 +74,7 @@ Alteração em campo-chave de um plano aprovado (repositório principal, critér
 **Rodada** (Run):
 Cada tentativa de um agente trabalhar em uma Tarefa. Uma Tarefa pode ter várias. Falha ou reinício gera nova Rodada, partindo do último checkpoint da anterior.
 _Avoid_: Execução (colide com a Fase), job, tentativa
+_Nota_: o **tipo da Rodada** (Exploração ou Execução) é só o nome da Fase em que a Tarefa estava ao iniciá-la; não é um segundo conceito de "execução".
 
 **Segmento** (Segment):
 Trecho de uma Rodada com um mesmo modelo e provedor. Trocar de modelo no meio abre novo Segmento na mesma Rodada, com seu próprio registro de tokens.

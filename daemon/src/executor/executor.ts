@@ -1,6 +1,6 @@
 /**
  * Interface do Executor: inicia uma Rodada num runtime e devolve eventos.
- * Adaptadores: `falso.ts` (testes, determinístico) e, no ticket 12, o Hermes.
+ * Adaptadores: `falso.ts` (testes, determinístico) e `hermes.ts` (ADR-0009).
  * Falha = a promessa rejeita (a Rodada fica "falhou" com a mensagem do erro).
  */
 export type TipoRodada = "Exploração" | "Execução";
@@ -20,7 +20,7 @@ export interface EntradaRodada {
   /** Prompt da Rodada: tarefa e Contexto consolidado; na retomada, também o último Checkpoint e o diff desde o SHA (ADR-0004). */
   prompt: string;
   /** Ambiente do processo do agente (ADR-0008): API, MCP e token `orquestrador`; nunca token humano.
-   *  CONTRATO para adaptadores (ticket 12): o processo do agente deve ser iniciado com env = PATH/HOME + SOMENTE estas chaves
+   *  CONTRATO para adaptadores (ADR-0009): o processo do agente deve ser iniciado com env = PATH/HOME + SOMENTE estas chaves
    *  (+ chaves do provedor do modelo, se o adaptador precisar); NUNCA repasse `process.env` inteiro (tem ATM_HUMAN_TOKEN e ATM_GITHUB_TOKEN). */
   ambiente: {
     ATM_API_URL: string;
@@ -44,7 +44,7 @@ export interface Executor {
   executar(entrada: EntradaRodada): Promise<void>;
 }
 
-/** Padrão quando nenhum adaptador foi injetado (o Hermes entra no ticket 12). */
+/** Padrão quando nenhum adaptador foi injetado (o Hermes entra via ADR-0009). */
 export const executorNaoConfigurado: Executor = {
   executar: async () => {
     throw new Error("Nenhum adaptador de Executor configurado");

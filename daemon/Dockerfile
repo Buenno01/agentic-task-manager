@@ -12,7 +12,7 @@ COPY src ./src
 # Dados persistentes (banco, anexos, logs) ficam em /data, montado como volume.
 RUN mkdir -p /data/db /data/attachments /data/logs /data/workspaces /data/repos && chown -R node:node /data
 USER node
-# Hermes Agent (ticket 12, ADR-0009): instalador oficial, sem setup interativo nem navegador. Instala em
+# Hermes Agent (ADR-0009): instalador oficial, sem setup interativo nem navegador. Instala em
 # ~/.hermes/hermes-agent e põe o binário em ~/.local/bin. NÃO testado em build neste repositório; para
 # reprodutibilidade, fixe o instalador com --commit <SHA>. Config e chaves do Hermes ficam em ~/.hermes (HOME do node).
 ENV PATH=/home/node/.local/bin:$PATH

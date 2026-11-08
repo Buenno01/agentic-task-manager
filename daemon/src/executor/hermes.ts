@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 import type { EntradaRodada, Executor } from "./executor.ts";
 
 /**
- * Adaptador do Executor sobre `hermes chat` não interativo (ticket 12, ADR-0009).
+ * Adaptador do Executor sobre `hermes chat` não interativo (ADR-0009).
  *
  * Comando: `hermes chat --query-file <arq> --format stream-json --in <workspace> [-m M] [--max-turns N] [--run-budget S]`.
  * O prompt vai por arquivo (nada é interpretado pelo shell). stdout é JSONL (`hermes_cli/stream_json.py`):

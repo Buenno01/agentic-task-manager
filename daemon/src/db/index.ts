@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Tarefa } from "../domain/tarefa.ts";
 import { agora } from "../domain/historico.ts";
 
-/** Histórico de uma Tarefa (ticket 05 estende com comentários etc.). Nunca é apagado. */
+/** Histórico de uma Tarefa (estendido por comentários etc.). Nunca é apagado. */
 export interface EventoTarefa {
   id: number;
   tarefaId: string;
