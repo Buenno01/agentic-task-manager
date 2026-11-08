@@ -26,7 +26,7 @@ export function erroDeAutorizacao(e: unknown): boolean {
   const status = Number(o?.status ?? o?.statusCode);
   if (status === 401 || status === 403) return true;
   const msg = e instanceof Error ? e.message : String(e);
-  return /\b(401|403)\b/.test(msg);
+  return /\b(HTTP|status)[ :]*40[13]\b|\b40[13] (Unauthorized|Forbidden)\b/i.test(msg);
 }
 
 /** Falhas seguidas na ordem do histórico. Interrupção (reinício) não conta nem zera; sucesso, cancelamento e ação do humano zeram. */

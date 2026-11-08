@@ -154,6 +154,17 @@ test("401/403 vão direto a Aguardando humano, sem retentativa", async () => {
   assert.equal((await rodadas(id)).length, 1);
 });
 
+test("número 403 solto na mensagem não é erro de autorização (segue o backoff normal)", async () => {
+  const { executor: ex } = executor(falha("processou 403 arquivos e travou"), travada);
+  await subir(ex);
+  const id = await autorizada();
+  await varrerEEsperar(id, 1);
+  assert.equal((await tarefa(id)).state, "Explorando");
+  agora += MIN;
+  await daemon!.varrer();
+  await esperar(async () => (await rodadas(id)).length === 2);
+});
+
 test("depois de Aguardando humano por falhas, o humano retoma e a contagem recomeça", async () => {
   const { executor: ex } = executor(falha("403 Forbidden"), travada);
   await subir(ex);
