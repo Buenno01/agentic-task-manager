@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { startDaemon, type Daemon } from "../src/api/server.ts";
 import { destravar } from "../src/workspace/workspace.ts";
 import type { EntradaRodada, Executor } from "../src/executor/executor.ts";
-import { CRED, HUMANO, AGENTE, comToken } from "./helpers.ts";
+import { CRED, HUMANO, AGENTE, ORQUESTRADOR as ORQUESTRADOR_TOKEN, comToken } from "./helpers.ts";
 
 let daemon: Daemon;
 let dir: string;
@@ -131,6 +131,49 @@ test("segredo plantado não aparece em eventos, logs, histórico nem nos bytes d
   }
   assert.match(api, /\[mascarado\]/);
   assert.match(logs, /\[mascarado\]/);
+});
+
+test("segredo plantado em comentário, plano, Área prevista e consolidado não aparece na API nem nos bytes do banco", async () => {
+  const o = origem("loja");
+  await subir(executorVazador([]));
+  const ctx = await contexto(o.url);
+  const id = await exploracao(ctx);
+  await acao(id, "iniciar", AGENTE);
+  const segredos = [GH, PROVEDOR];
+  const todos = segredos.join(" ");
+  assert.equal((await req("POST", `/tarefas/${id}/comentarios`, ORQUESTRADOR_TOKEN, { texto: `achei a chave ${todos}` })).status, 201);
+  assert.equal((await req("POST", `/tarefas/${id}/perguntar`, ORQUESTRADOR_TOKEN, { texto: `posso usar ${GH}?` })).status, 201);
+  const hist0 = await json(await req("GET", `/tarefas/${id}/eventos`, HUMANO));
+  const pergunta = hist0.find((e: any) => e.tipo === "pergunta");
+  await req("POST", `/tarefas/${id}/comentarios`, HUMANO, { tipo: "resposta", respondeA: pergunta.id, texto: "sim" });
+  const ent = await req("POST", `/tarefas/${id}/entregar`, ORQUESTRADOR_TOKEN, {
+    resumo: `resumo ${GH}`,
+    plano: `1. usar ${todos}`,
+    areaPrevista: [`src/${GH}`],
+    consolidado: `consolidado com ${todos}`,
+  });
+  assert.equal(ent.status, 200);
+
+  const cons = await json(await req("GET", `/contextos/${ctx}/consolidado`, HUMANO));
+  const versoes = await json(await req("GET", `/contextos/${ctx}/consolidado/versoes`, HUMANO));
+  const api = JSON.stringify([
+    hist0,
+    await json(await req("GET", `/tarefas/${id}/eventos`, HUMANO)),
+    await json(await req("GET", `/tarefas/${id}`, HUMANO)),
+    await json(ent),
+    cons,
+    versoes,
+    await json(await req("GET", `/busca?q=consolidado`, HUMANO)),
+  ]);
+  await daemon.close();
+  daemon = undefined as unknown as Daemon;
+  const banco = ["atm.db", "atm.db-wal"].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f)).toString("latin1")).join("\n");
+  for (const s of segredos) {
+    assert.ok(!api.includes(s), `API contém ${s.slice(0, 8)}…`);
+    assert.ok(!banco.includes(s), `banco contém ${s.slice(0, 8)}…`);
+  }
+  assert.match(cons.text, /consolidado com \[mascarado\] \[mascarado\]/);
+  assert.match(api, /1\. usar \[mascarado\]/);
 });
 
 test("saída grande vai para <logsDir>/<rodada>/ e o evento guarda só caminho e resumo", async () => {
