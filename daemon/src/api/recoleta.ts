@@ -1,6 +1,9 @@
 import type { DepsColetas } from "./coletas.ts";
 import { hashDoSnapshot, normalizarMetricas } from "../domain/coleta.ts";
 import { diferencas, janelaDeRecoleta } from "../domain/revisao.ts";
+import { detectarAnomalias } from "../coleta/anomalia.ts";
+import { agendaDoColetor } from "../domain/agenda.ts";
+import type { Coletor } from "../domain/coleta.ts";
 import { criarMascarador } from "../seguranca/mascarador.ts";
 
 /**
@@ -42,5 +45,19 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
       if (!d.store.maisRecentes(coletor.id).some((s) => s.period === period)) d.revisoes.abrirLacuna(coletor.id, coletaId, period, msg, agora());
     }
   }
+  avaliarAnomalias(d, coletor, agora());
   d.store.concluirColeta(coletaId, erros.length ? erros[0] : null, agora());
+}
+
+/** Avalia os dias fechados da série do Coletor; persiste só Anomalias novas e avisa o gancho de cada uma. */
+function avaliarAnomalias(d: DepsColetas, coletor: Coletor, agora: Date): void {
+  try {
+    const { timezone } = agendaDoColetor(coletor.params);
+    for (const e of detectarAnomalias(coletor.id, d.store.maisRecentes(coletor.id), coletor.thresholds, agora.getTime(), timezone)) {
+      const nova = d.anomalias.registrar(e, agora);
+      if (nova) d.aoDetectarAnomalia?.(nova, coletor);
+    }
+  } catch {
+    // A detecção nunca derruba a Coleta.
+  }
 }

@@ -1,4 +1,7 @@
 import type { ArmazemColetas } from "../db/coletas.ts";
+import type { ArmazemAnomalias, Anomalia } from "../db/anomalias.ts";
+import { rotaAnomalias } from "./anomalias.ts";
+import type { Coletor } from "../domain/coleta.ts";
 import type { ClienteColeta } from "../coleta/cliente.ts";
 import type { ArmazemRevisoes } from "../db/revisoes.ts";
 import { METRICAS, ehMetricaDeSnapshot, periodoDaColeta, validarColetor } from "../domain/coleta.ts";
@@ -13,6 +16,12 @@ const naoEncontrado: Resposta = { status: 404, corpo: { error: "Não encontrado"
 export interface DepsColetas {
   store: ArmazemColetas;
   revisoes: ArmazemRevisoes;
+  anomalias: ArmazemAnomalias;
+  /**
+   * Gancho dos tickets 07/08: chamado uma vez por Anomalia NOVA (reavaliação não repete), logo após persisti-la.
+   * Nunca deve lançar; se lançar, a Coleta não é afetada.
+   */
+  aoDetectarAnomalia?: (anomalia: Anomalia, coletor: Coletor) => void;
   cliente: ClienteColeta;
   relogio: () => number;
   mascarador: Mascarador;
@@ -41,6 +50,8 @@ export function rotaColetas(
   }
   const respRevisoes = rotaRevisoes(d, metodo, path);
   if (respRevisoes) return respRevisoes;
+  const respAnomalias = rotaAnomalias(d, metodo, path);
+  if (respAnomalias) return respAnomalias;
   const mc = path.match(/^\/coletores\/([^/]+)(?:\/(coletas|consolidado)|\/series\/([^/]+))?$/);
   if (mc) {
     const [, id, sub, metrica] = mc;
