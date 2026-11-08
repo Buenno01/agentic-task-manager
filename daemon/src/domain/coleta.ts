@@ -15,7 +15,7 @@ export const METRICAS = ["orders", "netRevenue", "averageTicket", "conversion"] 
 export type Metrica = (typeof METRICAS)[number];
 
 /** Métricas extras da Shopify, sem limiar de Anomalia: receita bruta, reembolsos e unidades do dia. */
-export const METRICAS_EXTRAS = ["grossRevenue", "refunds", "units"] as const;
+export const METRICAS_EXTRAS = ["grossRevenue", "refunds", "units", "sessions"] as const;
 /** Quebra por produto: `produto:<id>:unidades` e `produto:<id>:receita`. */
 const METRICA_PRODUTO = /^produto:\d+:(unidades|receita)$/;
 export const ehMetricaDeSnapshot = (nome: string) => (METRICAS as readonly string[]).includes(nome) || (METRICAS_EXTRAS as readonly string[]).includes(nome) || METRICA_PRODUTO.test(nome);

@@ -2,6 +2,7 @@ import type { ClienteColeta, PedidoColeta, RespostaColeta } from "./cliente.ts";
 import { httpShopifyReal, type HttpShopify, type RespostaShopify } from "./shopify-http.ts";
 import { agendaDoColetor, dataNoFuso, somarDias } from "../domain/agenda.ts";
 import { lojaShopify } from "../domain/coleta.ts";
+import { coletarAnalytics, ErroAcessoNegado } from "./shopifyql.ts";
 
 export interface OpcoesShopify {
   /** Camada HTTP; testes injetam a loja falsa. */
@@ -35,8 +36,14 @@ const CONSULTA = `query Pedidos($query: String!, $first: Int!, $after: String) {
   }
 }`;
 
-/** Erro de falha que não adianta retentar (credencial recusada, consulta inválida). */
-class ErroFatal extends Error {}
+/** Erro de falha que não adianta retentar (credencial recusada, consulta inválida). `semAcesso`: a loja/escopo não permite o campo. */
+class ErroFatal extends Error {
+  semAcesso: boolean;
+  constructor(mensagem: string, semAcesso = false) {
+    super(mensagem);
+    this.semAcesso = semAcesso;
+  }
+}
 /** Erro transitório; `esperaMs` vem do Retry-After ou do custo, quando a Shopify informou. */
 class ErroTransitorio extends Error {
   esperaMs: number | undefined;
@@ -85,7 +92,7 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
   const porPagina = opts.porPagina ?? 100;
 
   /** Uma requisição com retentativa: 429 espera o Retry-After; 5xx, timeout e THROTTLED, o backoff ou o custo. */
-  async function consultar(pedido: PedidoColeta, url: string, variables: Record<string, unknown>) {
+  async function consultar(pedido: PedidoColeta, url: string, texto: string, variables: Record<string, unknown>) {
     let ultimo = new Error("falha desconhecida");
     for (let n = 1; n <= tentativas; n++) {
       try {
@@ -94,7 +101,7 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
           res = await http({
             url,
             headers: { "content-type": "application/json", "x-shopify-access-token": pedido.token },
-            body: JSON.stringify({ query: CONSULTA, variables }),
+            body: JSON.stringify({ query: texto, variables }),
             timeoutMs,
           });
         } catch (e) {
@@ -102,7 +109,7 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
           throw new ErroTransitorio(timeout ? `Shopify: timeout após ${timeoutMs} ms` : "Shopify: falha de rede");
         }
         if (res.status === 401 || res.status === 403)
-          throw new ErroFatal(`Shopify recusou a credencial (HTTP ${res.status}): token inválido, expirado ou sem escopo`);
+          throw new ErroFatal(`Shopify recusou a credencial (HTTP ${res.status}): token inválido, expirado ou sem escopo`, res.status === 403);
         if (res.status === 429) {
           const s = Number(res.headers["retry-after"]);
           throw new ErroTransitorio("Shopify: limite de requisições (HTTP 429)", Number.isFinite(s) && s >= 0 ? s * 1000 : undefined);
@@ -113,7 +120,10 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
         if (corpo.errors?.length) {
           if (corpo.errors.some((e) => e.extensions?.code === "THROTTLED"))
             throw new ErroTransitorio("Shopify: custo GraphQL excedido (THROTTLED)", esperaPeloCusto(corpo.extensions?.cost) || undefined);
-          throw new ErroFatal(`Shopify GraphQL: ${corpo.errors.map((e) => e.message ?? "erro").join("; ")}`);
+          throw new ErroFatal(
+            `Shopify GraphQL: ${corpo.errors.map((e) => e.message ?? "erro").join("; ")}`,
+            corpo.errors.some((e) => e.extensions?.code === "ACCESS_DENIED"),
+          );
         }
         return { data: corpo.data, custo: corpo.extensions?.cost };
       } catch (e) {
@@ -142,7 +152,7 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
       const porProduto = new Map<string, { unidades: number; receita: number }>();
       let after: string | null = null;
       for (;;) {
-        const { data, custo } = await consultar(pedido, url, { query, first: porPagina, after });
+        const { data, custo } = await consultar(pedido, url, CONSULTA, { query, first: porPagina, after });
         moeda = data.shop.currencyCode;
         for (const { node } of data.orders.edges) {
           pedidos++;
@@ -177,7 +187,17 @@ export function criarClienteShopify(opts: OpcoesShopify = {}): ClienteColeta {
         metricas[`produto:${id}:unidades`] = p.unidades;
         metricas[`produto:${id}:receita`] = arredondar(p.receita);
       }
-      return { moeda, metricas };
+      // Sessões e conversão (ShopifyQL, módulo isolado): se faltarem, ficam null (nunca zero) e a Coleta é parcial.
+      const analytics = await coletarAnalytics(async (texto, variaveis) => {
+        try {
+          return await consultar(pedido, url, texto, variaveis);
+        } catch (e) {
+          throw e instanceof ErroFatal && e.semAcesso ? new ErroAcessoNegado(e.message) : e;
+        }
+      }, pedido.period);
+      metricas.sessions = analytics.sessions;
+      metricas.conversion = analytics.conversion;
+      return { moeda, metricas, ...(analytics.parcial ? { parcial: analytics.parcial } : {}) };
     },
   };
 }

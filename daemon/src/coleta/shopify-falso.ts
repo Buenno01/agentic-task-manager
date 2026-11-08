@@ -28,6 +28,14 @@ export interface ShopifyFalso {
   /** Custo reportado em `extensions.cost`. */
   custo: { requestedQueryCost: number; currentlyAvailable: number; restoreRate: number };
   requisicoes: RequisicaoShopify[];
+  /** Sessões e taxa de conversão (fração) por dia civil; dia ausente = ShopifyQL sem linhas. */
+  analytics: Record<string, { sessions: number; conversionRate: number }>;
+  /** Cenas consumidas só pelas consultas ShopifyQL (as de pedidos usam `cenas`). */
+  cenasAnalytics: Cena[];
+  /** A loja não tem acesso a analytics (plano ou escopo): ACCESS_DENIED. */
+  analyticsSemAcesso: boolean;
+  /** Consultas ShopifyQL recebidas (ficam fora de `requisicoes`). */
+  requisicoesAnalytics: RequisicaoShopify[];
 }
 
 const dinheiro = (n: number, moeda: string) => ({ shopMoney: { amount: n.toFixed(2), currencyCode: moeda } });
@@ -41,9 +49,14 @@ export function criarShopifyFalso(): ShopifyFalso {
     porPagina: 100,
     custo: { requestedQueryCost: 10, currentlyAvailable: 1000, restoreRate: 50 },
     requisicoes: [],
+    analytics: {},
+    cenasAnalytics: [],
+    analyticsSemAcesso: false,
+    requisicoesAnalytics: [],
     http: async (req) => {
-      f.requisicoes.push(req);
-      const cena = f.cenas.shift();
+      const analytics = req.body.includes("shopifyqlQuery");
+      (analytics ? f.requisicoesAnalytics : f.requisicoes).push(req);
+      const cena = (analytics ? f.cenasAnalytics : f.cenas).shift();
       if (cena) {
         if ("erro" in cena) {
           const e = new Error(cena.erro === "timeout" ? "The operation was aborted due to timeout" : "fetch failed");
@@ -51,6 +64,23 @@ export function criarShopifyFalso(): ShopifyFalso {
           throw e;
         }
         return cena;
+      }
+      if (analytics) {
+        if (f.analyticsSemAcesso)
+          return {
+            status: 200,
+            headers: {},
+            body: { errors: [{ message: "Access denied for shopifyqlQuery field.", extensions: { code: "ACCESS_DENIED" } }] },
+          };
+        const { variables: v } = JSON.parse(req.body) as { variables: { shopifyql: string } };
+        const dia = /SINCE (\d{4}-\d{2}-\d{2})/.exec(v.shopifyql)![1];
+        const linha = f.analytics[dia];
+        const rows = linha ? [{ day: dia, sessions: String(linha.sessions), conversion_rate: String(linha.conversionRate) }] : [];
+        return {
+          status: 200,
+          headers: {},
+          body: { data: { shopifyqlQuery: { parseErrors: [], tableData: { columns: [{ name: "day" }, { name: "sessions" }, { name: "conversion_rate" }], rows } } } },
+        };
       }
       const { variables } = JSON.parse(req.body) as { variables: { query: string; after: string | null } };
       const [, de, ate] = /created_at:>=(\S+) created_at:<(\S+)/.exec(variables.query)!;
