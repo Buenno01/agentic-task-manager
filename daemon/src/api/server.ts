@@ -39,6 +39,9 @@ import { criarLogs } from "../rodada/logs.ts";
 import { criarMascarador, segredosDasCredenciais, segredosDoAmbiente } from "../seguranca/mascarador.ts";
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
+import { abrirColetas } from "../db/coletas.ts";
+import { rotaColetas } from "./coletas.ts";
+import { clienteNaoConfigurado, type ClienteColeta } from "../coleta/cliente.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -78,6 +81,8 @@ export interface OpcoesDaemon {
   logsDir?: string;
   /** Token do GitHub (padrão: ATM_GITHUB_TOKEN); só entra em Rodadas de Execução, via GIT_ASKPASS. */
   githubToken?: string;
+  /** Coleta de métricas (Monitoramento): cliente da fonte e relógio (ms), injetáveis nos testes. */
+  coleta?: { cliente?: ClienteColeta; relogio?: () => number };
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -141,6 +146,16 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const cons = abrirConsolidado(opts.dbPath, mascarador.texto);
   const buscaDb = abrirBusca(opts.dbPath);
   const rodadasDb = abrirRodadas(opts.dbPath, mascarador.texto);
+  const coletasDb = abrirColetas(opts.dbPath, mascarador.texto);
+  coletasDb.interromperPendentes(new Date());
+  const coletasDeps = {
+    store: coletasDb,
+    cliente: opts.coleta?.cliente ?? clienteNaoConfigurado,
+    relogio: opts.coleta?.relogio ?? Date.now,
+    mascarador,
+    contextoExiste: (i: string) => !!ctx.obter(i),
+    emVoo: new Set<Promise<void>>(),
+  };
   let urlDaemon = "";
   let orq: Orquestrador | undefined;
   const workspacesDir = opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces";
@@ -257,6 +272,11 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const humano = apenasHumano(autor);
       const corpoJson = () => lerJson(req);
       if (path === "/auditoria" && metodo === "GET") return enviar(200, audit.listar());
+      const respColetas = rotaColetas(coletasDeps, metodo, path, humano, corpoJson, { status: 403, corpo: NEGADO });
+      if (respColetas) {
+        const r = await respColetas;
+        return enviar(r.status, r.corpo);
+      }
       const respWorkspaces = rotaWorkspaces(depsWorkspaces, metodo, path, humano);
       if (respWorkspaces) {
         const r = await respWorkspaces;
@@ -435,6 +455,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         close: async () => {
           await orq?.parar();
           await rodadasCtl.encerrar();
+          await Promise.allSettled([...coletasDeps.emVoo]);
           await new Promise<void>((r) => {
             server.close(() => {
               rodadasDb.close();
@@ -450,6 +471,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               areaDb.close();
               cons.close();
               buscaDb.close();
+              coletasDb.close();
               r();
             });
             server.closeAllConnections();
