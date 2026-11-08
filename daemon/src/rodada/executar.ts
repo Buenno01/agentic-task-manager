@@ -3,6 +3,7 @@ import { arquivosAlteradosDesde, checkpointDeReferencia, diffDesde, headSha, mon
 import type { Repositorio } from "../db/index.ts";
 import type { Executor, EventoExecutor, TipoRodada } from "../executor/executor.ts";
 import { ErroValidacao } from "../domain/tarefa.ts";
+import { ESPERA_SIGKILL_MS, erroDeAutorizacao, falhasSeguidas, motivoAguardarHumano } from "./falha.ts";
 import { ErroWorkspace, type Workspaces } from "../workspace/workspace.ts";
 
 export interface DepsRodada {
@@ -21,13 +22,34 @@ export interface DepsRodada {
   apiUrl: () => string;
   /** Chamado quando uma Rodada termina (o orquestrador reage liberando vaga). */
   aoTerminar?: () => void;
+  /** Relógio em ms (injetável; carimba falhas para o backoff). */
+  relogio?: () => number;
+  /** Agenda `fn` daqui a `ms` e devolve o cancelamento (injetável: SIGKILL após 10 s sem espera real). */
+  temporizador?: (fn: () => void, ms: number) => () => void;
+}
+
+const temporizadorReal = (fn: () => void, ms: number) => {
+  const t = setTimeout(fn, ms);
+  t.unref();
+  return () => clearTimeout(t);
+};
+
+interface Ativa {
+  tarefaId: string;
+  abort: AbortController;
+  forcado: AbortController;
+  fim: Promise<void>;
+  /** Preenchido ao cancelar por mudança de estado (sem ele, o aborto é fechamento do daemon). */
+  motivoCancelamento?: string;
 }
 
 const AUTOR = "agente:orquestrador";
 
 /** Dispara Rodadas num Executor e grava Rodada, Segmentos e eventos. */
 export function criarRodadas(d: DepsRodada) {
-  const ativas = new Map<string, { abort: AbortController; fim: Promise<void> }>();
+  const ativas = new Map<string, Ativa>();
+  const relogio = d.relogio ?? Date.now;
+  const temporizador = d.temporizador ?? temporizadorReal;
 
   async function prepararWorkspace(tarefaId: string, tipo: TipoRodada): Promise<string> {
     try {
@@ -86,6 +108,14 @@ export function criarRodadas(d: DepsRodada) {
     });
   }
 
+  /** Depois de uma falha: 401/403 ou 3 falhas seguidas levam a Tarefa a "Aguardando humano" com o motivo. */
+  function escalarSeNecessario(tarefaId: string, erro: string, autorizacao: boolean) {
+    const t = d.repo.obterTarefa(tarefaId);
+    if (!t || !((t.phase === "Exploração" && t.state === "Explorando") || (t.phase === "Execução" && t.state === "Em execução"))) return;
+    const motivo = motivoAguardarHumano(falhasSeguidas(d.repo.listarEventos(tarefaId)), autorizacao, erro);
+    if (motivo) d.repo.transicionar(tarefaId, { autor: AUTOR, tipo: "aguardar-humano-falha", de: t.state, para: "Aguardando humano", motivo });
+  }
+
   return {
     /** Checkpoint do agente (rota POST /tarefas/:id/checkpoint). */
     checkpointDoAgente: (rodadaId: string, dados: { progresso: string; decisoes: string[]; arquivosTocados: string[]; proximosPassos: string[] }) =>
@@ -99,6 +129,8 @@ export function criarRodadas(d: DepsRodada) {
       d.rodadas.registrarEvento(rodada.id, "prompt", { texto: prompt });
       d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-iniciada", motivo: `${tipo} (${rodada.id})` });
       const abort = new AbortController();
+      const forcado = new AbortController();
+      const ativa: Ativa = { tarefaId, abort, forcado, fim: Promise.resolve() };
       let segmentos = 0;
       let fila: Promise<unknown> = Promise.resolve();
       const naFila = (fn: () => Promise<unknown>) => (fila = fila.then(fn).catch(() => {}));
@@ -121,6 +153,7 @@ export function criarRodadas(d: DepsRodada) {
             prompt,
             ambiente: { ATM_API_URL: d.apiUrl(), ATM_MCP_URL: d.mcpUrl, ATM_AGENT_TOKEN: d.tokenAgente },
             sinal: abort.signal,
+            sinalForcado: forcado.signal,
             emitir,
           });
           await naFila(async () => segmentos > 0 && checkpoint(rodada.id, "automático", {}, "fim de Segmento"));
@@ -128,23 +161,57 @@ export function criarRodadas(d: DepsRodada) {
           d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-concluida", motivo: rodada.id });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          const cancelada = abort.signal.aborted;
-          await naFila(async () => (segmentos > 0 || cancelada) && checkpoint(rodada.id, "automático", {}, cancelada ? "cancelamento" : "fim de Segmento"));
-          d.rodadas.finalizar(rodada.id, cancelada ? "cancelada" : "falhou", msg);
-          d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: cancelada ? "rodada-cancelada" : "rodada-falhou", motivo: msg });
+          const abortada = abort.signal.aborted;
+          const cancelada = abortada && ativa.motivoCancelamento !== undefined;
+          const interrompida = abortada && !cancelada;
+          const motivoCp = cancelada ? "cancelamento" : interrompida ? "interrupção" : "fim de Segmento";
+          await naFila(async () => (segmentos > 0 || abortada) && checkpoint(rodada.id, "automático", {}, motivoCp));
+          if (cancelada) {
+            d.rodadas.finalizar(rodada.id, "cancelada", ativa.motivoCancelamento);
+            d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-cancelada", motivo: ativa.motivoCancelamento });
+          } else if (interrompida) {
+            // Fechamento do daemon: não é falha; a próxima Rodada parte do Checkpoint.
+            d.rodadas.finalizar(rodada.id, "interrompida", "Daemon encerrado durante a Rodada");
+            d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-interrompida", motivo: rodada.id });
+          } else {
+            const autorizacao = erroDeAutorizacao(e);
+            d.rodadas.registrarEvento(rodada.id, "falha", { erro: msg, autorizacao, emMs: relogio() });
+            d.rodadas.finalizar(rodada.id, "falhou", msg);
+            d.repo.registrarEvento(tarefaId, { autor: AUTOR, tipo: "rodada-falhou", motivo: msg });
+            escalarSeNecessario(tarefaId, msg, autorizacao);
+          }
         } finally {
           ativas.delete(rodada.id);
           d.aoTerminar?.();
         }
       })();
-      ativas.set(rodada.id, { abort, fim });
+      ativa.fim = fim;
+      ativas.set(rodada.id, ativa);
       return rodada;
+    },
+    /**
+     * Cancela a Rodada em curso da Tarefa por mudança de estado (rejeitar, reabrir, campo-chave, pausar):
+     * `sinal` (SIGTERM), `sinalForcado` (SIGKILL) após 10 s, Checkpoint automático; o Workspace fica.
+     * Espera a Rodada terminar. Devolve quantas foram canceladas.
+     */
+    async cancelarDaTarefa(tarefaId: string, motivo: string): Promise<number> {
+      const alvo = [...ativas.values()].filter((a) => a.tarefaId === tarefaId && !a.abort.signal.aborted);
+      for (const a of alvo) {
+        a.motivoCancelamento = motivo || "Cancelada por mudança de estado";
+        a.abort.abort();
+      }
+      const cancela = alvo.length ? temporizador(() => alvo.forEach((a) => a.forcado.abort()), ESPERA_SIGKILL_MS) : () => {};
+      await Promise.all(alvo.map((a) => a.fim));
+      cancela();
+      return alvo.length;
     },
     /** Cancela as Rodadas em curso e espera terminarem (fechamento do daemon). */
     async encerrar() {
       const todas = [...ativas.values()];
+      const cancela = temporizador(() => todas.forEach((a) => a.forcado.abort()), ESPERA_SIGKILL_MS);
       for (const a of todas) a.abort.abort();
       await Promise.all(todas.map((a) => a.fim));
+      cancela();
     },
   };
 }

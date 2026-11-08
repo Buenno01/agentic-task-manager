@@ -23,6 +23,9 @@ export interface EntradaRodada {
   ambiente: { ATM_API_URL: string; ATM_MCP_URL: string; ATM_AGENT_TOKEN: string };
   /** Disparado ao cancelar a Rodada ou fechar o daemon. */
   sinal: AbortSignal;
+  /** Disparado 10 s depois de `sinal` se a Rodada ainda não terminou: o adaptador deve mandar SIGKILL (o `sinal` equivale ao SIGTERM). */
+  sinalForcado: AbortSignal;
+  /** Adaptadores que criam processo emitem `{ tipo: "processo", dados: { pid } }` para o daemon matar órfãos no boot. */
   emitir(evento: EventoExecutor): void;
 }
 

@@ -17,6 +17,8 @@ export type Passo =
   | { pergunta: string }
   | { entrega: string }
   | { falha: string }
+  /** Anuncia o pid do processo do agente (evento "processo"). */
+  | { processo: number }
   | { morrer: true };
 
 export type Roteiro = Passo[];
@@ -58,6 +60,7 @@ export function criarExecutorFalso(roteiro: Roteiro): Executor & { prompts: stri
           await chamar("POST", "/tarefas/{tarefa}/entregar", { resumo: p.entrega });
           e.emitir({ tipo: "entrega", dados: { resumo: p.entrega } });
         }
+        else if ("processo" in p) e.emitir({ tipo: "processo", dados: { pid: p.processo } });
         else if ("falha" in p) throw new Error(p.falha);
         else if ("morrer" in p) throw new Error("Processo do agente morreu (SIGKILL)");
       }

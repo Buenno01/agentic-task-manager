@@ -48,6 +48,8 @@ export interface DepsOrquestrador {
   /** Move a Tarefa para o estado de andamento, registrando o orquestrador como autor. */
   marcarInicio(t: Tarefa, para: string, tipo: string): void;
   iniciarRodada(tarefaId: string, tipo: TipoRodada): Promise<unknown>;
+  /** Tarefa em andamento, sem Rodada ativa, cuja última Rodada pede nova (falha com backoff vencido, interrompida, retomada). */
+  precisaRetomar?(tarefaId: string, agoraMs: number): boolean;
 }
 
 interface Candidata {
@@ -58,9 +60,19 @@ interface Candidata {
 }
 
 /** Decide quais Tarefas aguardam uma Rodada e em que tipo. */
-function candidatas(d: DepsOrquestrador, ordenadas: Tarefa[]): Candidata[] {
+function candidatas(d: DepsOrquestrador, ordenadas: Tarefa[], agoraMs: number): Candidata[] {
   const out: Candidata[] = [];
+  const comRodada = new Set(d.emAndamento().map((r) => r.tarefaId));
   for (const t of ordenadas) {
+    if (
+      (t.state === "Explorando" || t.state === "Em execução") &&
+      !comRodada.has(t.id) &&
+      d.totalRodadas(t.id) > 0 &&
+      d.precisaRetomar?.(t.id, agoraMs)
+    ) {
+      out.push({ tarefa: t, tipo: t.phase === "Exploração" ? "Exploração" : "Execução", jaEmAndamento: true });
+      continue;
+    }
     if (t.phase === "Exploração" && t.state === "Autorizada para explorar") out.push({ tarefa: t, tipo: "Exploração", jaEmAndamento: false });
     else if (t.phase === "Execução" && t.state === "Na fila") out.push({ tarefa: t, tipo: "Execução", jaEmAndamento: false });
     else if (
@@ -97,7 +109,7 @@ export function criarOrquestrador(d: DepsOrquestrador, opcoes: OpcoesOrquestrado
     }
 
     const ordenadas = ordenarPorPrioridade(d.tarefas().map((t) => ({ ...t, priority: d.prioridade(t.id) })));
-    for (const c of candidatas(d, ordenadas)) {
+    for (const c of candidatas(d, ordenadas, relogio())) {
       if (ativas >= maxRodadas) break;
       const t = c.tarefa;
       if (!d.foiForcada(t.id) && d.dependenciasPendentes(t.id) > 0) continue;

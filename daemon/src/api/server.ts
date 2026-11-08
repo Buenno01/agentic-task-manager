@@ -29,6 +29,7 @@ import { abrirBusca } from "../db/busca.ts";
 import { rotaBusca } from "./busca.ts";
 import { abrirRodadas } from "../db/rodadas.ts";
 import { criarRodadas } from "../rodada/executar.ts";
+import { podeRetomar, recuperarInterrompidas } from "../rodada/falha.ts";
 import { rotaRodadas } from "./rodadas.ts";
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
@@ -61,6 +62,10 @@ export interface OpcoesDaemon {
   mcpUrl?: string;
   /** Orquestrador (ticket 02). `false` desliga; sem Executor injetado ele também fica desligado. */
   orquestrador?: OpcoesOrquestrador | false;
+  /** Agenda `fn` daqui a `ms` (SIGKILL 10 s após o SIGTERM do cancelamento); injetável nos testes. */
+  temporizador?: (fn: () => void, ms: number) => () => void;
+  /** Mata o processo órfão de uma Rodada interrompida no boot (injetável nos testes). */
+  matarProcesso?: (pid: number) => boolean;
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -143,6 +148,8 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     tokenAgente: credenciais.agentes.orquestrador ?? "",
     apiUrl: () => urlDaemon,
     aoTerminar: () => orq?.mudou(),
+    relogio: opts.orquestrador ? opts.orquestrador.relogio : undefined,
+    temporizador: opts.temporizador,
   });
   const orquestrador = rodadasCtl;
   if (opts.executor && opts.orquestrador !== false) {
@@ -159,10 +166,21 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         marcarInicio: (t, para, tipo) =>
           repo.transicionar(t.id, { autor: AUTOR_ORQUESTRADOR, tipo, de: t.state, para, motivo: "Rodada iniciada pelo orquestrador" }),
         iniciarRodada: (id, tipo) => rodadasCtl.iniciar(id, tipo),
+        precisaRetomar: (id, agoraMs) => {
+          const rs = rodadasDb.listarDaTarefa(id);
+          return podeRetomar({ ultima: rs[rs.length - 1], eventosTarefa: repo.listarEventos(id), agoraMs });
+        },
       },
       opts.orquestrador || undefined,
     );
   }
+  // Boot: Rodadas que ficaram "em andamento" (crash) viram "interrompidas"; não contam como falha.
+  const recuperacao = recuperarInterrompidas({
+    repo,
+    rodadas: rodadasDb,
+    checkpointAutomatico: (id, motivo) => rodadasCtl.checkpointAutomatico(id, motivo),
+    matar: opts.matarProcesso,
+  });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação autenticada registra o autor.
     // Sondagens (/health, OPTIONS) não entram na auditoria.
@@ -171,9 +189,23 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     let autor: Autor | undefined;
     let path = "/";
     let auditar = true;
+    /** Mudança de estado feita pelo humano (rejeitar, reabrir, pausar, campo-chave) cancela a Rodada em curso; prioridade não. */
+    const cancelarSeMudouEstado = (caminho: string, quemFez: Autor | undefined) => {
+      const m = caminho.match(/^\/tarefas\/([^/]+)\/(.+)$/);
+      if (!m || !quemFez) return;
+      const [, id, recurso] = m;
+      if (/^(rodadas|checkpoints?|perguntar|entregar|prioridade)$/.test(recurso)) return;
+      if (!apenasHumano(quemFez) && recurso !== "execucao") return;
+      const t = repo.obterTarefa(id);
+      if (!t || !rodadasDb.ativaDaTarefa(id)) return;
+      const andamento = (t.phase === "Exploração" && t.state === "Explorando") || (t.phase === "Execução" && t.state === "Em execução");
+      if (andamento) return;
+      void rodadasCtl.cancelarDaTarefa(id, `${recurso}: Tarefa agora em ${t.phase} · ${t.state}`);
+    };
     const enviar = (status: number, corpo?: unknown) => {
       if (auditar) audit.registrar(autor ? rotuloAutor(autor) : "anonimo", metodo, path, status);
       envio(res, cors, status, corpo);
+      if (metodo !== "GET" && status < 300) cancelarSeMudouEstado(path, autor);
       // Mudança de estado de Tarefa (ou criação): o orquestrador reavalia a fila.
       if (metodo !== "GET" && status < 300) orq?.mudou();
     };
@@ -333,7 +365,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       enviar(500, { error: "Erro interno" });
     }
   });
-  return new Promise((resolve) => {
+  return recuperacao.then(() => new Promise<Daemon>((resolve) => {
     server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
       urlDaemon = `http://127.0.0.1:${port}`;
@@ -365,5 +397,5 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
         },
       });
     });
-  });
+  }));
 }
