@@ -22,19 +22,22 @@ export function abrirContextos(path: string) {
       contexto_id TEXT NOT NULL REFERENCES contextos(id)
     );
   `);
+  if (!(db.prepare("PRAGMA table_info(contextos)").all() as { name: string }[]).some((c) => c.name === "reference_repositories"))
+    db.exec("ALTER TABLE contextos ADD COLUMN reference_repositories TEXT");
   const cols =
-    "id, name, kind, parent_id AS parentId, instructions, repository, test_commands AS testCommands, concurrency_limit AS concurrencyLimit, created_at AS createdAt";
-  type Row = Omit<Contexto, "testCommands"> & { testCommands: string | null };
+    "id, name, kind, parent_id AS parentId, instructions, repository, reference_repositories AS referenceRepositories, test_commands AS testCommands, concurrency_limit AS concurrencyLimit, created_at AS createdAt";
+  type Row = Omit<Contexto, "testCommands" | "referenceRepositories"> & { testCommands: string | null; referenceRepositories: string | null };
   const paraContexto = (r: Row): Contexto => ({
     ...r,
     testCommands: r.testCommands === null ? null : JSON.parse(r.testCommands),
+    referenceRepositories: r.referenceRepositories === null ? null : JSON.parse(r.referenceRepositories),
   });
   const q = {
     insert: db.prepare(
-      "INSERT INTO contextos (id, name, kind, parent_id, instructions, repository, test_commands, concurrency_limit, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO contextos (id, name, kind, parent_id, instructions, repository, test_commands, concurrency_limit, created_at, reference_repositories) VALUES (?,?,?,?,?,?,?,?,?,?)",
     ),
     update: db.prepare(
-      "UPDATE contextos SET name=?, kind=?, instructions=?, repository=?, test_commands=?, concurrency_limit=? WHERE id=?",
+      "UPDATE contextos SET name=?, kind=?, instructions=?, repository=?, test_commands=?, concurrency_limit=?, reference_repositories=? WHERE id=?",
     ),
     one: db.prepare(`SELECT ${cols} FROM contextos WHERE id = ?`),
     all: db.prepare(`SELECT ${cols} FROM contextos ORDER BY created_at, rowid`),
@@ -49,11 +52,13 @@ export function abrirContextos(path: string) {
   return {
     inserir(c: Contexto) {
       q.insert.run(c.id, c.name, c.kind, c.parentId, c.instructions, c.repository,
-        c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit, c.createdAt);
+        c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit, c.createdAt,
+        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories));
     },
     atualizar(c: Contexto) {
       q.update.run(c.name, c.kind, c.instructions, c.repository,
-        c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit, c.id);
+        c.testCommands === null ? null : JSON.stringify(c.testCommands), c.concurrencyLimit,
+        c.referenceRepositories === null ? null : JSON.stringify(c.referenceRepositories), c.id);
     },
     obter: (id: string): Contexto | undefined => {
       const r = q.one.get(id) as Row | undefined;

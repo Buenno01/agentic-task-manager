@@ -7,6 +7,8 @@ export type TipoContexto = (typeof TIPOS_CONTEXTO)[number];
 /** Configuração estruturada: `null` significa "herdar do pai". */
 export interface ConfigContexto {
   repository: string | null;
+  /** Repositórios de consulta (somente leitura nos Workspaces). */
+  referenceRepositories: string[] | null;
   testCommands: string[] | null;
   concurrencyLimit: number | null;
 }
@@ -45,6 +47,13 @@ function texto(v: unknown, campo: string): string | null {
 function config(e: Entrada): Partial<ConfigContexto> {
   const out: Partial<ConfigContexto> = {};
   if ("repository" in e) out.repository = texto(e.repository, "repository");
+  if ("referenceRepositories" in e) {
+    const v = e.referenceRepositories;
+    if (v === null) out.referenceRepositories = null;
+    else if (Array.isArray(v) && v.every((c) => typeof c === "string" && c.trim()))
+      out.referenceRepositories = v.map((c: string) => c.trim());
+    else throw new ErroValidacao("referenceRepositories deve ser uma lista de textos");
+  }
   if ("testCommands" in e) {
     const v = e.testCommands;
     if (v === null) out.testCommands = null;
@@ -82,6 +91,7 @@ export function novoContexto(e: Entrada): Contexto {
     parentId: texto(e.parentId, "parentId"),
     instructions: typeof e.instructions === "string" ? e.instructions : "",
     repository: c.repository ?? null,
+    referenceRepositories: c.referenceRepositories ?? null,
     testCommands: c.testCommands ?? null,
     concurrencyLimit: c.concurrencyLimit ?? null,
     createdAt: new Date().toISOString(),
@@ -109,6 +119,7 @@ export function resolverContexto(cadeia: Contexto[]): ContextoResolvido {
   const r: ContextoResolvido = {
     id: alvo.id,
     repository: null,
+    referenceRepositories: null,
     testCommands: null,
     concurrencyLimit: null,
     path: cadeia.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
@@ -117,6 +128,7 @@ export function resolverContexto(cadeia: Contexto[]): ContextoResolvido {
   };
   for (const c of cadeia) {
     if (c.repository !== null) r.repository = c.repository;
+    if (c.referenceRepositories !== null) r.referenceRepositories = c.referenceRepositories;
     if (c.testCommands !== null) r.testCommands = c.testCommands;
     if (c.concurrencyLimit !== null) r.concurrencyLimit = c.concurrencyLimit;
     if (c.instructions.trim()) r.instructions.push({ contextId: c.id, name: c.name, text: c.instructions.trim() });

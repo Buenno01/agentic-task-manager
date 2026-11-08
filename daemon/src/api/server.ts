@@ -4,7 +4,10 @@ import { abrirBanco } from "../db/index.ts";
 import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
-import { rotaContextos } from "./contextos.ts";
+import { rotaContextos, cadeia } from "./contextos.ts";
+import { resolverContexto } from "../domain/contexto.ts";
+import { criarWorkspaces } from "../workspace/workspace.ts";
+import { join } from "node:path";
 import { abrirAnexos } from "../db/anexos.ts";
 import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos, tipoSeguro } from "./anexos.ts";
 import { ErroCorpoGrande, LIMITE_JSON, lerCorpoLimitado } from "./corpo.ts";
@@ -49,6 +52,8 @@ export interface OpcoesDaemon {
   executor?: Executor;
   /** Raiz dos Workspaces das Rodadas (padrão: ATM_WORKSPACES_DIR ou ./data/workspaces). */
   workspacesDir?: string;
+  /** Volume dos clones (padrão: ATM_REPOS_DIR ou ../repos ao lado dos Workspaces). */
+  reposDir?: string;
   /** URL do MCP entregue ao processo do agente (ADR-0008; padrão: ATM_MCP_URL ou http://mcp:3100/mcp). */
   mcpUrl?: string;
 }
@@ -111,11 +116,19 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const buscaDb = abrirBusca(opts.dbPath);
   const rodadasDb = abrirRodadas(opts.dbPath);
   let urlDaemon = "";
+  const workspacesDir = opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces";
+  const workspaces = criarWorkspaces({ reposDir: opts.reposDir ?? process.env.ATM_REPOS_DIR ?? join(workspacesDir, "..", "repos"), workspacesDir });
+  const reposDaTarefa = (tarefaId: string) => {
+    const c = ctx.obter(ctx.contextoDaTarefa(tarefaId) ?? "");
+    const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
+    return { repositorio: r?.repository ?? null, consulta: r?.referenceRepositories ?? [] };
+  };
   const orquestrador = criarRodadas({
     repo,
     rodadas: rodadasDb,
     executor: opts.executor ?? executorNaoConfigurado,
-    workspacesDir: opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces",
+    workspaces,
+    reposDaTarefa,
     mcpUrl: opts.mcpUrl ?? process.env.ATM_MCP_URL ?? "http://mcp:3100/mcp",
     tokenAgente: credenciais.agentes.orquestrador ?? "",
     apiUrl: () => urlDaemon,
