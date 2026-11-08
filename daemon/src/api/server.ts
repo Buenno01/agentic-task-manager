@@ -40,7 +40,8 @@ import { criarMascarador, segredosDasCredenciais, segredosDoAmbiente } from "../
 import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
 import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
 import { abrirColetas } from "../db/coletas.ts";
-import { rotaColetas } from "./coletas.ts";
+import { rotaColetas, type DepsColetas } from "./coletas.ts";
+import { abrirAnomalias } from "../db/anomalias.ts";
 import { abrirRevisoes } from "../db/revisoes.ts";
 import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
 import { clienteNaoConfigurado, type ClienteColeta } from "../coleta/cliente.ts";
@@ -153,9 +154,11 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   const coletasDb = abrirColetas(opts.dbPath, mascarador.texto);
   coletasDb.interromperPendentes(new Date());
   const revisoesDb = abrirRevisoes(opts.dbPath, mascarador.texto);
-  const coletasDeps = {
+  const anomaliasDb = abrirAnomalias(opts.dbPath);
+  const coletasDeps: DepsColetas = {
     store: coletasDb,
     revisoes: revisoesDb,
+    anomalias: anomaliasDb,
     cliente: opts.coleta?.cliente ?? clienteNaoConfigurado,
     relogio: opts.coleta?.relogio ?? Date.now,
     mascarador,
@@ -484,6 +487,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               buscaDb.close();
               coletasDb.close();
               revisoesDb.close();
+              anomaliasDb.close();
               r();
             });
             server.closeAllConnections();
