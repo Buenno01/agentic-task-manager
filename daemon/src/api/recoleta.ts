@@ -20,13 +20,17 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
 
   const periodos = [...new Set([...d.revisoes.periodosEmAberto(coletor.id), ...janelaDeRecoleta(coleta.period, coletor.recollectWindowDays)])].sort();
   const erros: string[] = [];
+  let parcial = false;
   for (const period of periodos) {
     try {
       if (!token) throw new Error(`Variável de ambiente ${coletor.tokenEnv} não definida`);
       const r = await d.cliente.coletar({ source: coletor.source, params: coletor.params, period, token });
+      const anterior = d.store.maisRecentes(coletor.id).find((s) => s.period === period);
+      // Coleta parcial: métrica ausente nunca vira zero; valor já coletado antes é preservado, não apagado.
+      const faltando = (r.parcial?.faltando ?? []).filter((m) => anterior?.payload[m] == null);
+      for (const m of r.parcial?.faltando ?? []) if (anterior?.payload[m] != null) r.metricas[m] = anterior.payload[m];
       const payload = normalizarMetricas(r.metricas);
       const hash = hashDoSnapshot(period, r.moeda, payload);
-      const anterior = d.store.maisRecentes(coletor.id).find((s) => s.period === period);
       if (!anterior || anterior.hash !== hash) {
         const novo = d.store.gravarSnapshot({ coletorId: coletor.id, coletaId, period, currency: r.moeda, payload, hash }, agora());
         if (anterior)
@@ -35,12 +39,15 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
             agora(),
           );
       }
-      d.revisoes.recuperarLacuna(coletor.id, period, coletaId, agora());
+      if (r.parcial && faltando.length) {
+        parcial = true;
+        d.revisoes.abrirLacuna(coletor.id, coletaId, period, limpar(r.parcial.erro), agora(), { causa: r.parcial.causa, faltando });
+      } else d.revisoes.recuperarLacuna(coletor.id, period, coletaId, agora());
     } catch (e) {
       const msg = limpar(e);
       erros.push(msg);
       if (!d.store.maisRecentes(coletor.id).some((s) => s.period === period)) d.revisoes.abrirLacuna(coletor.id, coletaId, period, msg, agora());
     }
   }
-  d.store.concluirColeta(coletaId, erros.length ? erros[0] : null, agora());
+  d.store.concluirColeta(coletaId, erros.length ? erros[0] : null, agora(), parcial);
 }

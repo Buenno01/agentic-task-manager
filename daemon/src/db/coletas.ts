@@ -10,6 +10,8 @@ export interface Coleta {
   period: string;
   state: EstadoColeta;
   error: string | null;
+  /** Concluída com métricas ausentes (ex.: ShopifyQL indisponível); os períodos afetados têm Lacuna parcial. */
+  partial: boolean;
   /** Ids dos Snapshots gerados. */
   snapshots: string[];
   createdAt: string;
@@ -99,14 +101,17 @@ export function abrirColetas(path: string, mascarar: (s: string) => string = (s)
     CREATE TRIGGER IF NOT EXISTS snapshots_imutavel_d BEFORE DELETE ON snapshots
       BEGIN SELECT RAISE(ABORT, 'Snapshot é imutável'); END;
   `);
+  // Coleta parcial (ticket 05): coluna acrescentada a bancos criados antes.
+  if (!(db.prepare("PRAGMA table_info(coletas)").all() as { name: string }[]).some((c) => c.name === "partial"))
+    db.exec("ALTER TABLE coletas ADD COLUMN partial INTEGER NOT NULL DEFAULT 0");
   const proximo = (tabela: string) => (db.prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM ${tabela}`).get() as { n: number }).n;
   const insColetor = db.prepare(`INSERT INTO coletores (${COLETOR}, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const umColetor = db.prepare(`SELECT ${COLETOR} FROM coletores WHERE id = ?`);
   const todosColetores = db.prepare(`SELECT ${COLETOR} FROM coletores ORDER BY seq`);
   const insColeta = db.prepare("INSERT INTO coletas (id, coletor_id, period, state, created_at, seq) VALUES (?, ?, ?, 'em andamento', ?, ?)");
-  const fimColeta = db.prepare("UPDATE coletas SET state = ?, error = ?, finished_at = ? WHERE id = ?");
-  const umaColeta = db.prepare("SELECT id, coletor_id, period, state, error, created_at, finished_at FROM coletas WHERE id = ?");
-  const coletasDoColetor = db.prepare("SELECT id, coletor_id, period, state, error, created_at, finished_at FROM coletas WHERE coletor_id = ? ORDER BY seq");
+  const fimColeta = db.prepare("UPDATE coletas SET state = ?, error = ?, finished_at = ?, partial = ? WHERE id = ?");
+  const umaColeta = db.prepare("SELECT id, coletor_id, period, state, error, partial, created_at, finished_at FROM coletas WHERE id = ?");
+  const coletasDoColetor = db.prepare("SELECT id, coletor_id, period, state, error, partial, created_at, finished_at FROM coletas WHERE coletor_id = ? ORDER BY seq");
   const interrompe = db.prepare("UPDATE coletas SET state = 'falhou', error = 'Interrompida (daemon reiniciou)', finished_at = ? WHERE state = 'em andamento'");
   const insSnapshot = db.prepare("INSERT INTO snapshots (id, coletor_id, coleta_id, period, currency, payload, hash, created_at, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const umSnapshot = db.prepare("SELECT * FROM snapshots WHERE id = ?");
@@ -125,6 +130,7 @@ export function abrirColetas(path: string, mascarar: (s: string) => string = (s)
       period: r.period as string,
       state: r.state as EstadoColeta,
       error: (r.error as string | null) ?? null,
+      partial: r.partial === 1,
       snapshots: (snapshotsDaColeta.all(r.id as string) as { id: string }[]).map((s) => s.id),
       createdAt: r.created_at as string,
       finishedAt: (r.finished_at as string | null) ?? null,
@@ -150,8 +156,8 @@ export function abrirColetas(path: string, mascarar: (s: string) => string = (s)
     obterColeta: (id: string) => coleta(umaColeta.get(id) as Record<string, unknown> | undefined),
     listarColetas: (coletorId: string) => (coletasDoColetor.all(coletorId) as Record<string, unknown>[]).map((r) => coleta(r)!),
     /** Conclui a Coleta; o texto do erro é mascarado (ADR-0001/0007). */
-    concluirColeta(id: string, erro: string | null, agora: Date) {
-      fimColeta.run(erro === null ? "concluída" : "falhou", erro === null ? null : mascarar(erro), agora.toISOString(), id);
+    concluirColeta(id: string, erro: string | null, agora: Date, parcial = false) {
+      fimColeta.run(erro === null ? "concluída" : "falhou", erro === null ? null : mascarar(erro), agora.toISOString(), parcial ? 1 : 0, id);
     },
     /** Boot: Coletas "em andamento" de um daemon anterior viram "falhou". */
     interromperPendentes: (agora: Date) => void interrompe.run(agora.toISOString()),

@@ -121,7 +121,11 @@ Registro imutável do que uma Coleta obteve para um período. A visão consolida
 Registro de que um período já coletado mudou na fonte, com valor anterior e novo. Recoletar um período é idempotente: não duplica, só gera Revisão se algo mudou.
 
 **Lacuna** (Gap):
-Período sem dados por falha de Coleta. Fica consultável pela API e pode ser recuperada depois.
+Período sem dados por falha de Coleta. Fica consultável pela API e pode ser recuperado depois. Quando só faltam algumas métricas (a Coleta foi parcial), é uma **Lacuna parcial**: o período tem Snapshot, e a Lacuna lista as métricas ausentes e a causa.
+
+**Coleta parcial** (Partial collection):
+Coleta que termina com sucesso, mas sem parte das métricas, por exemplo sessões e conversão quando o ShopifyQL falha ou a loja não tem analytics. Pedidos, receita e produtos são gravados; as métricas ausentes ficam explícitas como ausentes, nunca como zero, e o período entra como Lacuna parcial até uma recoleta completá-lo. A Anomalia não avalia métrica ausente.
+_Avoid_: Coleta falha (a Coleta parcial conclui; falha é a que não grava Snapshot)
 
 ### Isolamento
 

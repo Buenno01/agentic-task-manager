@@ -1,4 +1,5 @@
 import type { Fonte } from "../domain/coleta.ts";
+import type { Parcial } from "./shopifyql.ts";
 
 export interface PedidoColeta {
   source: Fonte;
@@ -13,6 +14,8 @@ export interface RespostaColeta {
   /** Moeda da loja (ISO 4217). */
   moeda: string;
   metricas: Record<string, number | null>;
+  /** Presente quando a Coleta veio incompleta (ex.: ShopifyQL falhou); `metricas` traz `null` nas ausentes. */
+  parcial?: Parcial;
 }
 
 /** Cliente da fonte (injetável em `startDaemon`; testes usam o falso). */
