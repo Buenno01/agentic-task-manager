@@ -42,6 +42,8 @@ import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOr
 import { abrirColetas } from "../db/coletas.ts";
 import { rotaColetas, type DepsColetas } from "./coletas.ts";
 import { abrirAnomalias } from "../db/anomalias.ts";
+import { abrirAnalises } from "../db/analise.ts";
+import { criarAnalise } from "../coleta/analise.ts";
 import { abrirRevisoes } from "../db/revisoes.ts";
 import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
 import { clienteNaoConfigurado, clientePorFonte, type ClienteColeta } from "../coleta/cliente.ts";
@@ -156,10 +158,14 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   coletasDb.interromperPendentes(new Date());
   const revisoesDb = abrirRevisoes(opts.dbPath, mascarador.texto);
   const anomaliasDb = abrirAnomalias(opts.dbPath);
+  const analisesDb = abrirAnalises(opts.dbPath);
+  const analise = criarAnalise({ repo, ctx, prios, coment, analises: analisesDb, relogio: opts.coleta?.relogio ?? Date.now, mudou: () => orq?.mudou() });
   const coletasDeps: DepsColetas = {
     store: coletasDb,
     revisoes: revisoesDb,
     anomalias: anomaliasDb,
+    aoDetectarAnomalia: analise.aoDetectarAnomalia,
+    aoVarrerColetor: analise.fechar,
     cliente: clientePorFonte(opts.coleta?.cliente ?? clienteNaoConfigurado, criarClienteShopify(opts.coleta?.shopify)),
     relogio: opts.coleta?.relogio ?? Date.now,
     mascarador,
@@ -489,6 +495,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               coletasDb.close();
               revisoesDb.close();
               anomaliasDb.close();
+              analisesDb.close();
               r();
             });
             server.closeAllConnections();

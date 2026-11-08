@@ -58,6 +58,11 @@ export function criarAgendador(d: DepsColetas, opcoes: OpcoesAgendador = {}) {
       } catch (e) {
         console.error(`Falha no agendador de Coletas (${c.id}):`, e instanceof Error ? e.message : e);
       }
+      try {
+        d.aoVarrerColetor?.(c);
+      } catch (e) {
+        console.error(`Falha no fechamento de período (${c.id}):`, e instanceof Error ? e.message : e);
+      }
     }
   }
 

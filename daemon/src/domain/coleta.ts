@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ErroValidacao } from "./tarefa.ts";
 import { agendaDoColetor } from "./agenda.ts";
+import { frequenciaDeFechamento } from "./fechamento.ts";
 
 /** Fontes de dados conhecidas. Contrato simples, sem plataforma de plugins (ADR-0003). */
 export const FONTES = ["falso", "shopify"] as const;
@@ -53,6 +54,7 @@ export function validarColetor(e: Record<string, unknown>, contextoExiste: (id: 
   const params = e.params ?? {};
   if (!params || typeof params !== "object" || Array.isArray(params)) throw new ErroValidacao("params deve ser um objeto");
   agendaDoColetor(params as Record<string, unknown>);
+  frequenciaDeFechamento(params as Record<string, unknown>);
   if (e.source === "shopify") lojaShopify(params as Record<string, unknown>);
   const janela = e.recollectWindowDays ?? 7;
   if (typeof janela !== "number" || !Number.isInteger(janela) || janela < 1) throw new ErroValidacao("recollectWindowDays deve ser inteiro ≥ 1");
