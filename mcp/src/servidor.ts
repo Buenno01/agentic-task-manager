@@ -116,9 +116,9 @@ export function criarServidorMcp(api: Api): McpServer {
     "entregar",
     {
       description: "Entrega o resultado da Rodada (plano na Exploração, trabalho na Execução). Não aprova nem conclui: isso é do humano.",
-      inputSchema: { tarefaId: z.string(), resumo: z.string().optional() },
+      inputSchema: { tarefaId: z.string(), resumo: z.string().optional(), plano: z.string().optional(), areaPrevista: z.array(z.string()).optional() },
     },
-    ({ tarefaId, resumo }) => executar(() => api.entregar(tarefaId, resumo)),
+    ({ tarefaId, ...corpo }) => executar(() => api.entregar(tarefaId, corpo)),
   );
 
   return s;

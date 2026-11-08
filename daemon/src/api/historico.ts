@@ -11,6 +11,8 @@ interface Deps {
   comentarios: Comentarios;
   tarefaExiste(id: string): boolean;
   transicoes(id: string): ItemHistorico[];
+  /** Chamado depois de gravar uma resposta (para devolver a Tarefa ao andamento quando não restar pergunta aberta). */
+  aoResponder?(tarefaId: string, autor: string): void;
 }
 
 /** Histórico (comentários + transições): só criação e leitura, nunca edição/remoção. */
@@ -40,7 +42,9 @@ export function rotaHistorico(
           throw new ErroValidacao("Resposta deve ligar a uma pergunta da mesma Tarefa");
         respondeA = alvo.id as string;
       } else if (b.respondeA !== undefined) throw new ErroValidacao("Apenas resposta pode ligar a uma pergunta");
-      return { status: 201, corpo: d.comentarios.inserir({ tarefaId: id, autor, tipo, texto: b.texto.trim(), respondeA }) };
+      const c = d.comentarios.inserir({ tarefaId: id, autor, tipo, texto: b.texto.trim(), respondeA });
+      if (tipo === "resposta") d.aoResponder?.(id, autor);
+      return { status: 201, corpo: c };
     }
     if (metodo === "OPTIONS") return { status: 204 };
     return { status: 405, corpo: { error: "Histórico é imutável" } };

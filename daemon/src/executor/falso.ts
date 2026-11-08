@@ -32,7 +32,7 @@ export function criarExecutorFalso(roteiro: Roteiro): Executor & { prompts: stri
         const r = await fetch(e.ambiente.ATM_API_URL + caminho.replaceAll("{tarefa}", e.tarefaId), {
           method: metodo,
           headers: { authorization: `Bearer ${e.ambiente.ATM_AGENT_TOKEN}`, "content-type": "application/json" },
-          body: corpo === undefined ? undefined : JSON.stringify(corpo),
+          body: corpo === undefined ? undefined : JSON.stringify(corpo).replaceAll("{tarefa}", e.tarefaId),
         });
         await r.arrayBuffer();
         e.emitir({ tipo: "api", dados: { metodo, caminho, status: r.status } });
