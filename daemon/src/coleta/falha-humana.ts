@@ -19,6 +19,10 @@ export const CATEGORIAS = {
     titulo: "loja inexistente",
     orientacao: "Confira o domínio da loja (params.shop) no Coletor.",
   },
+  analytics: {
+    titulo: "analytics indisponível (plano ou escopo)",
+    orientacao: "O plano da loja ou os escopos do app não permitem ler sessões e conversão (ShopifyQL). Habilite o escopo read_reports ou o plano necessário; até lá sessões e conversão ficam ausentes.",
+  },
 } as const;
 
 export type CategoriaFalha = keyof typeof CATEGORIAS;

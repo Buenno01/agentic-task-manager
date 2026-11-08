@@ -5,7 +5,7 @@ import { detectarAnomalias } from "../coleta/anomalia.ts";
 import { agendaDoColetor } from "../domain/agenda.ts";
 import type { Coletor } from "../domain/coleta.ts";
 import { criarMascarador } from "../seguranca/mascarador.ts";
-import { categoriaDaFalha } from "../coleta/falha-humana.ts";
+import { categoriaDaFalha, type CategoriaFalha } from "../coleta/falha-humana.ts";
 
 /**
  * Roda a Coleta em segundo plano (RF25): nunca lança; o resultado fica na Coleta.
@@ -26,6 +26,15 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
   const erros: string[] = [];
   let parcial = false;
   const jaAvisadas = new Set<string>(); // uma notificação por categoria e Coleta, mesmo com vários períodos
+  const avisar = (categoria: CategoriaFalha, period: string, mensagem: string) => {
+    if (jaAvisadas.has(categoria)) return;
+    jaAvisadas.add(categoria);
+    try {
+      d.aoFalharComAcaoHumana?.({ coletor, categoria, period, mensagem, agora: agora() });
+    } catch {
+      // Criar a Tarefa nunca derruba a Coleta.
+    }
+  };
   for (const period of periodos) {
     try {
       if (!token) throw new Error(`Variável de ambiente ${coletor.tokenEnv} não definida`);
@@ -47,19 +56,14 @@ export async function recolher(d: DepsColetas, coletaId: string): Promise<void> 
       if (r.parcial && faltando.length) {
         parcial = true;
         d.revisoes.abrirLacuna(coletor.id, coletaId, period, limpar(r.parcial.erro), agora(), { causa: r.parcial.causa, faltando });
+        // Analytics indisponível por plano/escopo exige ação humana; a Coleta segue parcial. "analytics-falhou" é transitório.
+        if (r.parcial.causa === "analytics-indisponivel") avisar("analytics", period, limpar(r.parcial.erro));
       } else d.revisoes.recuperarLacuna(coletor.id, period, coletaId, agora());
     } catch (e) {
       const msg = limpar(e);
       erros.push(msg);
       const categoria = categoriaDaFalha(e);
-      if (categoria && !jaAvisadas.has(categoria)) {
-        jaAvisadas.add(categoria);
-        try {
-          d.aoFalharComAcaoHumana?.({ coletor, categoria, period, mensagem: msg, agora: agora() });
-        } catch {
-          // Criar a Tarefa nunca derruba a Coleta.
-        }
-      }
+      if (categoria) avisar(categoria, period, msg);
       if (!d.store.maisRecentes(coletor.id).some((s) => s.period === period)) d.revisoes.abrirLacuna(coletor.id, coletaId, period, msg, agora());
     }
   }

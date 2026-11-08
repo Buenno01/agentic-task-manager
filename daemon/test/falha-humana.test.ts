@@ -144,3 +144,33 @@ test("o período fica como Lacuna e é recuperado quando a causa é resolvida", 
   const depois = (await json("GET", `/coletores/${c.id}/lacunas`)) as Array<{ period: string; recoveredAt: string | null }>;
   assert.ok(depois[0].recoveredAt);
 });
+
+test("analytics indisponível por plano/escopo: Coleta parcial e exatamente uma Tarefa Novo por Coletor, mesmo repetindo", async () => {
+  loja.pedidos.push({ createdAt: "2026-03-09T13:00:00Z", total: 100 });
+  loja.analyticsSemAcesso = true;
+  const c = await novoColetor();
+  for (let i = 0; i < 3; i++) {
+    const coleta = await coletar(c.id);
+    assert.equal(coleta.state, "concluída");
+    assert.equal(coleta.partial, true);
+  }
+  const tarefas = await tarefasDoContexto();
+  assert.equal(tarefas.length, 1);
+  assert.equal(tarefas[0].state, "Novo");
+  assert.match(tarefas[0].title, /analytics/i);
+  const eventos = (await json("GET", `/tarefas/${tarefas[0].id}/eventos`)) as Array<{ tipo: string }>;
+  assert.equal(eventos.filter((e) => e.tipo === "falha-repetida").length, 2);
+  const [lacuna] = (await json("GET", `/coletores/${c.id}/lacunas`)) as Array<{ partial: boolean; cause: string }>;
+  assert.equal(lacuna.partial, true);
+  assert.equal(lacuna.cause, "analytics-indisponivel");
+});
+
+test("analytics falhou (transitório) nunca gera Tarefa", async () => {
+  loja.pedidos.push({ createdAt: "2026-03-09T13:00:00Z", total: 100 });
+  const c = await novoColetor();
+  for (let i = 0; i < 2; i++) {
+    loja.cenasAnalytics.push({ status: 503, headers: {}, body: "x" }, { status: 503, headers: {}, body: "x" }, { status: 503, headers: {}, body: "x" });
+    assert.equal((await coletar(c.id)).partial, true);
+  }
+  assert.equal((await tarefasDoContexto()).length, 0);
+});
