@@ -7,6 +7,7 @@ import { abrirContextos } from "../db/contextos.ts";
 import { rotaContextos, cadeia } from "./contextos.ts";
 import { resolverContexto } from "../domain/contexto.ts";
 import { criarWorkspaces } from "../workspace/workspace.ts";
+import { liberarSeTerminal, rotaWorkspaces, type DepsWorkspaces } from "./workspaces.ts";
 import { join } from "node:path";
 import { abrirAnexos } from "../db/anexos.ts";
 import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos, tipoSeguro } from "./anexos.ts";
@@ -139,6 +140,12 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
     return { repositorio: r?.repository ?? null, consulta: r?.referenceRepositories ?? [] };
   };
+  const depsWorkspaces: DepsWorkspaces = {
+    workspaces,
+    workspacesDir,
+    obterTarefa: (id) => repo.obterTarefa(id),
+    rodadaAtiva: (id) => !!rodadasDb.ativaDaTarefa(id),
+  };
   const entregar = criarEntrega({ criarPr: opts.criarPr });
   const rodadasCtl = criarRodadas({
     repo,
@@ -204,10 +211,14 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       if (/^(rodadas|checkpoints?|perguntar|entregar|prioridade)$/.test(recurso)) return;
       if (!apenasHumano(quemFez) && recurso !== "execucao") return;
       const t = repo.obterTarefa(id);
-      if (!t || !rodadasDb.ativaDaTarefa(id)) return;
+      if (!t) return;
+      // Cancela a Rodada em curso (se houver) e, estando a Tarefa em estado terminal, remove o worktree depois.
+      const ativa = rodadasDb.ativaDaTarefa(id);
       const andamento = (t.phase === "Exploração" && t.state === "Explorando") || (t.phase === "Execução" && t.state === "Em execução");
-      if (andamento) return;
-      void rodadasCtl.cancelarDaTarefa(id, `${recurso}: Tarefa agora em ${t.phase} · ${t.state}`);
+      const cancelamento = ativa && !andamento
+        ? rodadasCtl.cancelarDaTarefa(id, `${recurso}: Tarefa agora em ${t.phase} · ${t.state}`)
+        : Promise.resolve(0);
+      void cancelamento.then(() => liberarSeTerminal(depsWorkspaces, id)).catch((e) => console.error(e));
     };
     const enviar = (status: number, corpo?: unknown) => {
       if (auditar) audit.registrar(autor ? rotuloAutor(autor) : "anonimo", metodo, path, status);
@@ -235,6 +246,11 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const humano = apenasHumano(autor);
       const corpoJson = () => lerJson(req);
       if (path === "/auditoria" && metodo === "GET") return enviar(200, audit.listar());
+      const respWorkspaces = rotaWorkspaces(depsWorkspaces, metodo, path, humano);
+      if (respWorkspaces) {
+        const r = await respWorkspaces;
+        return enviar(r.status, r.corpo);
+      }
       const respBusca = rotaBusca(
         { busca: buscaDb, anexos, consolidado: cons, contextoExiste: (i) => !!ctx.obter(i), contextos: () => ctx.listar(), contextoDaTarefa: (i) => ctx.contextoDaTarefa(i) },
         metodo, path, url.searchParams,
