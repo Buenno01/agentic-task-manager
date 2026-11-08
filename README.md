@@ -102,6 +102,10 @@ Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `busc
 - **stdio:** `docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp`, ou localmente `ATM_API_URL=... ATM_AGENT_TOKEN=... node mcp/src/main.ts --stdio`.
 - Local sem Docker: `cd mcp && npm ci && npm start` (host `ATM_MCP_HOST`, padrão 127.0.0.1). Testes: `npm test` (sobe o daemon real) e `npm run typecheck`.
 
+## Executor Hermes (ticket 12, ADR-0009)
+
+`ATM_EXECUTOR=hermes` liga o adaptador sobre `hermes chat --query-file … --format stream-json --in <workspace>` (opcionais: `ATM_HERMES_MODEL`, `ATM_HERMES_MAX_TURNS`, `ATM_HERMES_RUN_BUDGET`, `ATM_HERMES_BIN`); sem a variável, nenhum Executor está configurado e as Rodadas falham com essa mensagem. Valor desconhecido faz o daemon recusar iniciar. O agente recebe só `PATH`/`HOME`, o ambiente da Rodada e as chaves do provedor (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`…); nunca `ATM_HUMAN_TOKEN`/`ATM_GITHUB_TOKEN`. O uso de tokens vem do registro `result` do stream-json (não do `--usage-file`, que só vale em `--oneshot`); sem ele, "uso desconhecido". A imagem do daemon instala o Hermes pelo instalador oficial. A suíte automática nunca chama o modelo: o contrato do Executor roda no falso e, com `ATM_TESTE_HERMES=1`, no Hermes real; `ATM_TESTE_HERMES=1 scripts/verificar-hermes.sh` roda uma Tarefa de exemplo de ponta a ponta (custa tokens).
+
 ## Segurança e limites
 
 - **Tokens:** o daemon recusa iniciar sem `ATM_HUMAN_TOKEN`, e recusa tokens (humano ou de agente) que comecem com `troque-por` (valor de exemplo do `.env.example`) ou tenham menos de 16 caracteres. `startDaemon` exige `credenciais` (não existe modo "sem autenticação"). `ATM_AGENT_TOKEN` (usado pelo serviço `mcp`) **deve ser igual** ao token de um agente em `ATM_AGENT_TOKENS`; o compose não o deriva sozinho.

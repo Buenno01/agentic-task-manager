@@ -19,6 +19,14 @@ services:
       # Token do GitHub (escopo mínimo, ADR-0001): só Rodadas de Execução, via GIT_ASKPASS; nunca na URL do remote.
       ATM_GITHUB_TOKEN: ${ATM_GITHUB_TOKEN:-}
       ATM_MAX_RODADAS: ${ATM_MAX_RODADAS:-2}
+      # Executor (ADR-0009): "hermes" liga o adaptador; vazio = não configurado. Chaves do provedor são repassadas só ao agente.
+      ATM_EXECUTOR: ${ATM_EXECUTOR:-}
+      ATM_HERMES_MODEL: ${ATM_HERMES_MODEL:-}
+      ATM_HERMES_MAX_TURNS: ${ATM_HERMES_MAX_TURNS:-}
+      ATM_HERMES_RUN_BUDGET: ${ATM_HERMES_RUN_BUDGET:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # Clones dos repositórios dos Contextos (volume atm-repos); os Workspaces são worktrees deles.
       ATM_REPOS_DIR: /data/repos
       # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
