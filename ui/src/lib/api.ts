@@ -131,3 +131,20 @@ export const obterResolvido = (id: string) => api<ContextoResolvido>(`/contextos
 export const obterConsolidado = (id: string) => api<ContextoConsolidado>(`/contextos/${id}/consolidado`);
 export const listarTarefasDoContexto = (id: string, subarvore = true) =>
   api<Tarefa[]>(`/contextos/${id}/tarefas${subarvore ? "?subarvore" : ""}`);
+
+// Busca (daemon/src/api/busca.ts). `snippet` traz os termos que casaram entre [colchetes].
+export type TipoResultado = "tarefa" | "comentario" | "consolidado" | "anexo";
+export interface ResultadoBusca {
+  tipo: TipoResultado;
+  id: string;
+  snippet: string;
+  taskId: string | null;
+  contextId: string | null;
+  version?: number;
+}
+export const buscar = (q: string, contexto?: string, subarvore = true) => {
+  const p = new URLSearchParams({ q });
+  if (contexto) p.set("contexto", contexto);
+  if (contexto && subarvore) p.set("subarvore", "1");
+  return api<ResultadoBusca[]>(`/busca?${p}`);
+};

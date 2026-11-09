@@ -1,4 +1,5 @@
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
+import { CommandPalette } from "@/components/command-palette";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TokenDialog } from "@/components/token-dialog";
@@ -33,6 +34,7 @@ function Shell() {
       <ConnectionBanner />
       <Outlet />
       <TokenDialog />
+      <CommandPalette />
     </div>
   );
 }
