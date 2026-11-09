@@ -1,4 +1,4 @@
-import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet } from "@tanstack/react-router";
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TokenDialog } from "@/components/token-dialog";
@@ -50,7 +50,16 @@ export const indexRoute = createRoute({
   }),
   component: Workspace,
 });
-export const routeTree = rootRoute.addChildren([indexRoute]);
+/** Link direto `/tarefas/:id`: abre o mesmo detalhe (painel de "/?tarefa=:id"), preservando os filtros. */
+export const tarefaRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tarefas/$id",
+  validateSearch: indexRoute.options.validateSearch,
+  beforeLoad: ({ params, search }) => {
+    throw redirect({ to: "/", search: { ...search, tarefa: params.id }, replace: true });
+  },
+});
+export const routeTree = rootRoute.addChildren([indexRoute, tarefaRoute]);
 
 /** `initialPath` usa histórico em memória (testes); sem ele, histórico do navegador. */
 export function criarRouter(initialPath?: string) {
