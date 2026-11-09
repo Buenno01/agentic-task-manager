@@ -150,9 +150,9 @@ API HTTP local. Núcleo das regras de negócio e fonte única de verdade.
 **MCP** (MCP):
 Adaptador para agentes sobre a API. Expõe ferramentas estruturadas e nenhuma de aprovação.
 
-**UI mínima** (Minimal UI):
+**UI** (UI):
 Projeto independente que consome apenas a API. É o lugar onde o humano opera as filas, comenta e aprova.
-_Avoid_: Dashboard (não há dashboard de monitoramento no MVP)
+_Avoid_: UI mínima (nome antigo), Dashboard (não há dashboard de monitoramento no MVP)
 
 ### Pessoas e permissões
 
