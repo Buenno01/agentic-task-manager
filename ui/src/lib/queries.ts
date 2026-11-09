@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  buscar,
   criarContexto,
   criarTarefa,
   definirPrioridade,
@@ -50,6 +51,17 @@ export function useContextoResolvido(id: string) {
 export function useConsolidado(id: string) {
   const { temToken } = useSessao();
   return useQuery({ queryKey: ["contextos", id, "consolidado"], queryFn: () => obterConsolidado(id), enabled: temToken });
+}
+
+/** Busca no daemon; só dispara com consulta não vazia. */
+export function useBusca(q: string, contexto?: string, subarvore = true) {
+  const { temToken } = useSessao();
+  return useQuery({
+    queryKey: ["busca", q, contexto ?? null, subarvore],
+    queryFn: () => buscar(q, contexto, subarvore),
+    enabled: temToken && q.length > 0,
+    refetchInterval: false,
+  });
 }
 
 export function useCriarContexto() {
