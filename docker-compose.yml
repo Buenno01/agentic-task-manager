@@ -78,6 +78,7 @@ services:
     environment:
       UI_HOST: 0.0.0.0
       UI_PORT: "5173"
+      ATM_API_URL: http://daemon:3000
     ports:
       - "127.0.0.1:${UI_PORT:-5173}:5173"
     healthcheck:
