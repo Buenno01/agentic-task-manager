@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { XIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { AcoesAprovacao } from "@/components/acoes-aprovacao";
 import { Button } from "@/components/ui/button";
 import type { ContextoNo } from "@/lib/api";
 import type { ItemHistorico, TipoComentario } from "@/lib/api-tarefa";
@@ -195,7 +196,7 @@ export function DetalheTarefa({ id }: { id: string }) {
           <XIcon />
         </Button>
       </div>
-      {/* Slot das ações de Aprovação (tickets 06 e 08): renderizar aqui, com `t` e o histórico. */}
+      {t && <AcoesAprovacao tarefa={t} itens={itens} />}
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Histórico</h3>
         {itens.length === 0 && !historico.isPending ? (
