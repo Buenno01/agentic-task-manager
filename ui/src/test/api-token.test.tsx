@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "@/App";
 import { createQueryClient } from "@/lib/api-provider";
+import { contextosVazios } from "./contextos-mock";
 import { http, HttpResponse, server } from "./server";
 
 const tarefa = { id: "t1", title: "Primeira tarefa", description: "", phase: "Exploração", state: "Novo", createdAt: "2026-01-01T00:00:00Z" };
@@ -15,6 +16,7 @@ describe("token e conexão com a API", () => {
         return HttpResponse.json([tarefa]);
       }),
     );
+    contextosVazios();
     const { unmount } = render(<App />);
     expect(await screen.findByRole("dialog", { name: /token/i })).toBeInTheDocument();
     expect(auth).toEqual([]);
@@ -42,6 +44,11 @@ describe("token e conexão com a API", () => {
           : HttpResponse.json({ error: "Não autenticado" }, { status: 401 }),
       ),
     );
+    server.use(
+      http.get("*/api/contextos/arvore", ({ request }) =>
+        request.headers.get("authorization") === "Bearer certo" ? HttpResponse.json([]) : HttpResponse.json({ error: "Não autenticado" }, { status: 401 }),
+      ),
+    );
     render(<App />);
     const dialogo = await screen.findByRole("dialog", { name: /token/i });
     expect(dialogo).toHaveTextContent(/recusado/i);
@@ -54,7 +61,7 @@ describe("token e conexão com a API", () => {
 
   it("API fora do ar mostra aviso de conexão sem quebrar a tela nem pedir token", async () => {
     localStorage.setItem("atm-token", "ok");
-    server.use(http.get("*/api/tarefas", () => HttpResponse.error()));
+    server.use(http.get("*/api/tarefas", () => HttpResponse.error()), http.get("*/api/contextos/arvore", () => HttpResponse.error()));
     render(<App />);
     expect(await screen.findByRole("alert")).toHaveTextContent(/não foi possível conectar/i);
     expect(screen.getByRole("heading", { name: /agentic task manager/i })).toBeInTheDocument();
@@ -64,7 +71,10 @@ describe("token e conexão com a API", () => {
   it("o aviso de conexão some quando a API volta", async () => {
     localStorage.setItem("atm-token", "ok");
     let fora = true;
-    server.use(http.get("*/api/tarefas", () => (fora ? HttpResponse.error() : HttpResponse.json([tarefa]))));
+    server.use(
+      http.get("*/api/tarefas", () => (fora ? HttpResponse.error() : HttpResponse.json([tarefa]))),
+      http.get("*/api/contextos/arvore", () => (fora ? HttpResponse.error() : HttpResponse.json([]))),
+    );
     render(<App refetchIntervalMs={20} />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     fora = false;

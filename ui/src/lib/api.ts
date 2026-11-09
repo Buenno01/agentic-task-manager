@@ -63,3 +63,56 @@ export interface Tarefa {
 }
 
 export const listarTarefas = () => api<Tarefa[]>("/tarefas");
+
+// Contextos (daemon/src/domain/contexto.ts). Herança e consolidação são do daemon; a UI só exibe.
+export const TIPOS_CONTEXTO = ["cliente", "projeto", "repositorio", "loja", "ambiente"] as const;
+export type TipoContexto = (typeof TIPOS_CONTEXTO)[number];
+
+export interface Contexto {
+  id: string;
+  name: string;
+  kind: TipoContexto;
+  parentId: string | null;
+  instructions: string;
+  repository: string | null;
+  testCommands: string[] | null;
+  concurrencyLimit: number | null;
+  createdAt: string;
+  [campo: string]: unknown;
+}
+export type ContextoNo = Contexto & { children: ContextoNo[] };
+
+export interface ContextoResolvido {
+  id: string;
+  path: { id: string; name: string; kind: TipoContexto }[];
+  repository: string | null;
+  testCommands: string[] | null;
+  concurrencyLimit: number | null;
+  instructions: { contextId: string; name: string; text: string }[];
+  instructionsText: string;
+  [campo: string]: unknown;
+}
+
+export interface ContextoConsolidado {
+  contextId: string;
+  version: number;
+  text: string;
+  createdAt: string | null;
+  [campo: string]: unknown;
+}
+
+export interface NovoContexto {
+  name: string;
+  kind: TipoContexto;
+  parentId?: string;
+  repository?: string;
+  testCommands?: string[];
+  concurrencyLimit?: number;
+  instructions?: string;
+}
+
+export const listarArvore = () => api<ContextoNo[]>("/contextos/arvore");
+export const criarContexto = (c: NovoContexto) => api<Contexto>("/contextos", { method: "POST", body: c });
+export const obterResolvido = (id: string) => api<ContextoResolvido>(`/contextos/${id}/resolvido`);
+export const obterConsolidado = (id: string) => api<ContextoConsolidado>(`/contextos/${id}/consolidado`);
+export const listarTarefasDoContexto = (id: string) => api<Tarefa[]>(`/contextos/${id}/tarefas?subarvore`);
