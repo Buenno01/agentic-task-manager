@@ -34,6 +34,8 @@ function api(tarefas = TAREFAS) {
       reg.subarvore.push(`${params.id}${new URL(request.url).search}`);
       return HttpResponse.json(tarefas.filter((t) => t.id === "t1" || t.id === "t2"));
     }),
+    http.get("*/api/tarefas/:id", ({ params }) => HttpResponse.json(tarefas.find((t) => t.id === params.id) ?? { error: "Não encontrado" })),
+    http.get("*/api/tarefas/:id/eventos", () => HttpResponse.json([])),
     http.post("*/api/tarefas", async ({ request }) => {
       const corpo = await request.json();
       reg.posts.push(corpo);
@@ -215,12 +217,12 @@ describe("teclado", () => {
     expect(linhas()[1]).toHaveFocus();
 
     await userEvent.keyboard("{Enter}");
-    expect(await screen.findByRole("region", { name: "Detalhe da Tarefa" })).toHaveTextContent("t5");
+    expect(await screen.findByRole("heading", { name: "Definir domínio" })).toBeInTheDocument();
   });
 
   it("?tarefa= na URL abre o painel de detalhe", async () => {
     api();
     render(<App initialPath="/?tarefa=t3" />);
-    expect(await screen.findByRole("region", { name: "Detalhe da Tarefa" })).toHaveTextContent("t3");
+    expect(await screen.findByRole("heading", { name: "Migrar tema" })).toBeInTheDocument();
   });
 });
