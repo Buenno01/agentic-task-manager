@@ -154,7 +154,9 @@ const emCampo = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closes
 export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemHistorico[] }) {
   const [dialogo, setDialogo] = useState<"aprovar" | "rejeitar">();
   const reabrir = useAcaoAprovacao(tarefa.id);
-  const pronto = tarefa.state === ESTADO_PLANO;
+  // Subtarefa proposta pelo agente nasce em "Novo": aprovar-subtarefa, sempre pelo diálogo.
+  const subNovo = tarefa.state === "Novo" && !!tarefa.maeId;
+  const pronto = tarefa.state === ESTADO_PLANO || subNovo;
   const rejeitado = tarefa.state === ESTADO_REJEITADO;
 
   useEffect(() => {
@@ -196,7 +198,7 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
           {reabrir.error.message}
         </p>
       )}
-      <DialogoAprovacao tarefa={tarefa} plano={planoDoHistorico(itens)} aberto={dialogo === "aprovar"} aoFechar={fechar} />
+      <DialogoAprovacao tarefa={tarefa} plano={planoDoHistorico(itens)} acao={subNovo ? "aprovar-subtarefa" : "aprovar"} aberto={dialogo === "aprovar"} aoFechar={fechar} />
       <DialogoRejeicao tarefa={tarefa} aberto={dialogo === "rejeitar"} aoFechar={fechar} />
     </div>
   );

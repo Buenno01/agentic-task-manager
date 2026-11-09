@@ -1,10 +1,12 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import { CheckIcon, PlusIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AvisoDependencia } from "@/components/aviso-dependencia";
 import { TarefaForm } from "@/components/tarefa-form";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NIVEIS, type ContextoNo, type Tarefa } from "@/lib/api";
+import { maeDe, pendentesDe, subtarefasDe } from "@/lib/api-subtarefas";
 import { useDefinirPrioridade, useTarefas } from "@/lib/queries";
 import type { SearchRaiz } from "@/lib/router";
 import { ESTADO_AGUARDANDO, ESTADOS, agrupar, aparenciaEstado, aparenciaPrioridade, contarAguardando, nivelDe } from "@/lib/tarefas";
@@ -55,21 +57,51 @@ function PrioridadePopover({ tarefa }: { tarefa: Tarefa }) {
   );
 }
 
-function Linha({ tarefa, aberta, aoAbrir }: { tarefa: Tarefa; aberta: boolean; aoAbrir: () => void }) {
+function Linha({ tarefa, aberta, aoAbrir, filhas, abertaId, aoAbrirId }: {
+  tarefa: Tarefa;
+  aberta: boolean;
+  aoAbrir: () => void;
+  filhas: Tarefa[];
+  abertaId?: string;
+  aoAbrirId: (id: string) => void;
+}) {
   const { icone: Icone, cor } = aparenciaEstado(tarefa.state);
+  const [expandida, setExpandida] = useState(true);
+  const pendentes = pendentesDe(tarefa);
   return (
-    <li className={cn("flex h-8 items-center gap-1 rounded-md pr-1 hover:bg-accent/60", aberta && "bg-accent")}>
-      <button
-        type="button"
-        data-linha
-        aria-label={`Abrir ${tarefa.title}`}
-        onClick={aoAbrir}
-        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Icone className={cn("size-4 shrink-0", cor)} aria-hidden />
-        <span className="truncate">{tarefa.title}</span>
-      </button>
-      <PrioridadePopover tarefa={tarefa} />
+    <li>
+      <div className={cn("flex h-8 items-center gap-1 rounded-md pr-1 hover:bg-accent/60", aberta && "bg-accent")}>
+        {filhas.length > 0 && (
+          <button
+            type="button"
+            aria-expanded={expandida}
+            aria-label={`${expandida ? "Recolher" : "Expandir"} Subtarefas de ${tarefa.title}`}
+            onClick={() => setExpandida(!expandida)}
+            className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {expandida ? <ChevronDownIcon className="size-3.5" aria-hidden /> : <ChevronRightIcon className="size-3.5" aria-hidden />}
+          </button>
+        )}
+        <button
+          type="button"
+          data-linha
+          aria-label={`Abrir ${tarefa.title}`}
+          onClick={aoAbrir}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Icone className={cn("size-4 shrink-0", cor)} aria-hidden />
+          <span className="truncate">{tarefa.title}</span>
+        </button>
+        <AvisoDependencia titulo={tarefa.title} pendentes={pendentes} />
+        <PrioridadePopover tarefa={tarefa} />
+      </div>
+      {filhas.length > 0 && expandida && (
+        <ul className="ml-6 border-l pl-1">
+          {filhas.map((f) => (
+            <Linha key={f.id} tarefa={f} aberta={f.id === abertaId} aoAbrir={() => aoAbrirId(f.id)} filhas={[]} abertaId={abertaId} aoAbrirId={aoAbrirId} />
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
@@ -84,7 +116,14 @@ export function ListaTarefas({ arvore }: { arvore: ContextoNo[] }) {
   const todas = data ?? [];
   const aguardando = contarAguardando(todas);
   const visiveis = todas.filter((t) => (!estado || t.state === estado) && (!prioridade || nivelDe(t) === prioridade));
-  const grupos = agrupar(visiveis);
+  // Subtarefa aparece sob a mãe quando a mãe também está visível; senão vai ao topo (filtros não a escondem).
+  const idsVisiveis = new Set(visiveis.map((t) => t.id));
+  const topo = visiveis.filter((t) => !(maeDe(t) && idsVisiveis.has(maeDe(t)!)));
+  const filhasDe = (m: Tarefa) => {
+    const ids = new Set(subtarefasDe(m).map((s) => s.id));
+    return visiveis.filter((t) => ids.has(t.id) || maeDe(t) === m.id);
+  };
+  const grupos = agrupar(topo);
 
   useEffect(() => {
     document.title = aguardando > 0 ? `(${aguardando}) ${TITULO_BASE}` : TITULO_BASE;
@@ -171,7 +210,15 @@ export function ListaTarefas({ arvore }: { arvore: ContextoNo[] }) {
               </h3>
               <ul>
                 {g.tarefas.map((t) => (
-                  <Linha key={t.id} tarefa={t} aberta={t.id === aberta} aoAbrir={() => mudar({ tarefa: t.id })} />
+                  <Linha
+                    key={t.id}
+                    tarefa={t}
+                    aberta={t.id === aberta}
+                    aoAbrir={() => mudar({ tarefa: t.id })}
+                    filhas={filhasDe(t)}
+                    abertaId={aberta}
+                    aoAbrirId={(id) => mudar({ tarefa: id })}
+                  />
                 ))}
               </ul>
             </section>
