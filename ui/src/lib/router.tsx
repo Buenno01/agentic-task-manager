@@ -3,6 +3,7 @@ import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TokenDialog } from "@/components/token-dialog";
 import { Workspace } from "@/components/workspace";
+import { NIVEIS, type Nivel } from "@/lib/api";
 
 /**
  * Roteamento por código (sem plugin de arquivos). Rota única "/" com `?contexto=<id>`.
@@ -11,7 +12,16 @@ import { Workspace } from "@/components/workspace";
  */
 export interface SearchRaiz {
   contexto?: string;
+  /** Filtro por estado (nome do estado). */
+  estado?: string;
+  prioridade?: Nivel;
+  /** Só `false` vai para a URL; ausente = incluir sub-Contextos. */
+  subcontextos?: false;
+  /** Tarefa aberta no painel de detalhe. */
+  tarefa?: string;
 }
+
+const texto = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
 function Shell() {
   return (
@@ -32,7 +42,11 @@ export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   validateSearch: (s: Record<string, unknown>): SearchRaiz => ({
-    contexto: typeof s.contexto === "string" && s.contexto ? s.contexto : undefined,
+    contexto: texto(s.contexto),
+    estado: texto(s.estado),
+    prioridade: NIVEIS.find((n) => n === s.prioridade),
+    subcontextos: s.subcontextos === false || s.subcontextos === "false" ? false : undefined,
+    tarefa: texto(s.tarefa),
   }),
   component: Workspace,
 });

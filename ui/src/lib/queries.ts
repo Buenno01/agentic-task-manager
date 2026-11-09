@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   criarContexto,
+  criarTarefa,
+  definirPrioridade,
+  type Nivel,
   listarArvore,
   listarTarefas,
   listarTarefasDoContexto,
@@ -12,12 +15,25 @@ import { useSessao } from "@/lib/api-provider";
 /** Hooks de dados: ficam desligados sem token (o diálogo cuida disso). Polling vem dos defaults do QueryClient. */
 
 /** Tarefas; com `contextoId`, as do Contexto e de toda a subárvore. */
-export function useTarefas(contextoId?: string) {
+export function useTarefas(contextoId?: string, subarvore = true) {
   const { temToken } = useSessao();
   return useQuery({
-    queryKey: ["tarefas", contextoId ?? null],
-    queryFn: () => (contextoId ? listarTarefasDoContexto(contextoId) : listarTarefas()),
+    queryKey: ["tarefas", contextoId ?? null, contextoId ? subarvore : true],
+    queryFn: () => (contextoId ? listarTarefasDoContexto(contextoId, subarvore) : listarTarefas()),
     enabled: temToken,
+  });
+}
+
+export function useCriarTarefa() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: criarTarefa, onSuccess: () => qc.invalidateQueries({ queryKey: ["tarefas"] }) });
+}
+
+export function useDefinirPrioridade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, nivel }: { id: string; nivel: Nivel }) => definirPrioridade(id, nivel),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tarefas"] }),
   });
 }
 

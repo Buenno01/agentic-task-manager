@@ -4,34 +4,18 @@ import { useState } from "react";
 import { ArvoreContextos } from "@/components/arvore-contextos";
 import { ContextoDetalhe } from "@/components/contexto-detalhe";
 import { ContextoForm } from "@/components/contexto-form";
+import { DetalheTarefa } from "@/components/detalhe-tarefa";
+import { ListaTarefas } from "@/components/lista-tarefas";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { useArvoreContextos, useTarefas } from "@/lib/queries";
+import { useArvoreContextos } from "@/lib/queries";
 import { useTelaLarga } from "@/lib/use-wide";
 
 const rota = getRouteApi("/");
 
-/** Lista de Tarefas (placeholder até o ticket da lista): filtrada pelo Contexto da URL. */
-function Lista({ contexto }: { contexto?: string }) {
-  const { data } = useTarefas(contexto);
-  return (
-    <section aria-label="Tarefas" className="p-4 text-sm text-muted-foreground">
-      {data?.length ? (
-        <ul>
-          {data.map((t) => (
-            <li key={t.id}>{t.title}</li>
-          ))}
-        </ul>
-      ) : (
-        "Nada por aqui ainda."
-      )}
-    </section>
-  );
-}
-
 /** Três áreas: sidebar de Contextos | lista | detalhe. Abaixo de 1024 px a sidebar é um drawer. */
 export function Workspace() {
-  const { contexto } = rota.useSearch();
+  const { contexto, tarefa } = rota.useSearch();
   const navigate = useNavigate();
   const larga = useTelaLarga();
   const [drawer, setDrawer] = useState(false);
@@ -74,10 +58,16 @@ export function Workspace() {
               </Button>
             </div>
           )}
-          <Lista contexto={contexto} />
+          <ListaTarefas arvore={arvore} />
         </div>
         <div className="min-w-0 flex-1" aria-label="Detalhe">
-          {contexto ? <ContextoDetalhe id={contexto} /> : <p className="p-4 text-sm text-muted-foreground">Escolha um Contexto para ver o Contexto consolidado.</p>}
+          {tarefa ? (
+            <DetalheTarefa id={tarefa} />
+          ) : contexto ? (
+            <ContextoDetalhe id={contexto} />
+          ) : (
+            <p className="p-4 text-sm text-muted-foreground">Escolha um Contexto para ver o Contexto consolidado.</p>
+          )}
         </div>
       </div>
       <ContextoForm
