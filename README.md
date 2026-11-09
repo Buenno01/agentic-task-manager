@@ -5,7 +5,7 @@ Ver `GLOSSARY.md`, `docs/adr/` e `.scratch/nucleo/spec.md`.
 ## Estrutura
 
 - `daemon/` — daemon TypeScript/Node + SQLite + API HTTP (ADR-0005, ADR-0007). Módulos: `src/api` (HTTP), `src/db` (SQLite), `src/domain` (regras).
-- `ui/` — SPA (React, TypeScript, Vite, Tailwind, shadcn/ui; ADR-0010), projeto independente; fala só com a API. Dev: `cd ui && npm ci && npm run dev` (proxy `/api` → daemon, sem CORS); testes: `npm test`; produção: Docker serve o build em :5173. A UI antiga está em `ui/legacy/` até o ticket 10.
+- `ui/` — SPA (React, TypeScript, Vite, Tailwind, shadcn/ui; ADR-0010), projeto independente; fala só com a API. Dev: `cd ui && npm ci && npm run dev` (proxy `/api` → daemon, sem CORS); testes: `npm test`; E2E do fluxo de Aprovação: `npm run e2e` (sobe daemon real com banco temporário e tokens descartáveis + build da UI em portas 4391/4392, semeia pela API; requer o Chromium do Playwright, ou `E2E_CHROMIUM_PATH=<chromium>` para usar um já instalado; fonte em `ui/e2e/`); produção: Docker serve o build em :5173. A UI antiga está em `ui/legacy/` até o ticket 10.
 
 ## Rodar
 
