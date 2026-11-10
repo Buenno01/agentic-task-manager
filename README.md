@@ -154,6 +154,12 @@ Os portões de aprovação (`aprovar`, `aprovar-subtarefa`, `forcar-inicio`, `co
 
 `ATM_EXECUTOR=hermes` liga o adaptador sobre `hermes chat --query-file … --format stream-json --in <workspace>` (opcionais: `ATM_HERMES_MODEL`, `ATM_HERMES_MAX_TURNS`, `ATM_HERMES_RUN_BUDGET`, `ATM_HERMES_BIN`); sem a variável, nenhum Executor está configurado e as Rodadas falham com essa mensagem. Valor desconhecido faz o daemon recusar iniciar. O agente recebe só `PATH`/`HOME`, o ambiente da Rodada e as chaves do provedor (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`…); nunca `ATM_HUMAN_TOKEN`/`ATM_GITHUB_TOKEN`. O uso de tokens vem do registro `result` do stream-json (não do `--usage-file`, que só vale em `--oneshot`); sem ele, "uso desconhecido". A imagem do daemon instala o Hermes pelo instalador oficial. A suíte automática nunca chama o modelo: o contrato do Executor roda no falso e, com `ATM_TESTE_HERMES=1`, no Hermes real; `ATM_TESTE_HERMES=1 scripts/verificar-hermes.sh` roda uma Tarefa de exemplo de ponta a ponta (custa tokens).
 
+## Atualização pela API (só humano)
+
+- `GET /atualizacao` → `{ versao, configurada, estado: "disponivel"|"indisponivel", pedidoPendente, ultima }` (`versao` = `ATM_VERSAO`; `ultima` = conteúdo de `ultima-atualizacao.json` ou `null`).
+- `POST /atualizacao/pedido` → `202 { aceito: true, jaPendente }`; sem marcador do host → `409` e nada é gravado. Agente → `403` (nas duas rotas). Não há ferramenta MCP: agentes nunca atualizam a produção.
+- O daemon só grava `pedido-atualizacao` em `ATM_RUN_DIR` (Compose: `./run` no host → `/run/atm`; o mesmo diretório que `scripts/atualizar.sh` usa em `ATM_ESTADO_DIR`, padrão `~/atm-prod/run`). "Configurada" = existe `configurada` ali (gravado pelo instalador do host). Sem `ATM_RUN_DIR`/diretório, o sistema sobe normalmente e a atualização fica indisponível.
+
 ## Segurança e limites
 
 - **Tokens:** o daemon recusa iniciar sem `ATM_HUMAN_TOKEN`, e recusa tokens (humano ou de agente) que comecem com `troque-por` (valor de exemplo do `.env.example`) ou tenham menos de 16 caracteres. `startDaemon` exige `credenciais` (não existe modo "sem autenticação"). `ATM_AGENT_TOKEN` (usado pelo serviço `mcp`) **deve ser igual** ao token de um agente em `ATM_AGENT_TOKENS`; o compose não o deriva sozinho.

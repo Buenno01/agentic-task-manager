@@ -52,6 +52,7 @@ import { criarRegistroDeFalhaHumana } from "../coleta/falha-humana.ts";
 import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
 import { clienteNaoConfigurado, clientePorFonte, type ClienteColeta } from "../coleta/cliente.ts";
 import { criarClienteShopify, type OpcoesShopify } from "../coleta/shopify.ts";
+import { rotaAtualizacao } from "./atualizacao.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
@@ -75,6 +76,10 @@ export interface OpcoesDaemon {
   corsOrigins?: string[];
   /** Adaptador do Executor (injetável; testes usam o falso). Padrão: nenhum configurado. */
   executor?: Executor;
+  /** Diretório `run` compartilhado com o host (padrão: ATM_RUN_DIR); ausente => atualização indisponível. */
+  runDir?: string;
+  /** Tag em execução (padrão: ATM_VERSAO, exportada por scripts/atualizar.sh). */
+  versao?: string;
   /** Raiz dos Workspaces das Rodadas (padrão: ATM_WORKSPACES_DIR ou ./data/workspaces). */
   workspacesDir?: string;
   /** Volume dos clones (padrão: ATM_REPOS_DIR ou ../repos ao lado dos Workspaces). */
@@ -325,6 +330,10 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const humano = apenasHumano(autor);
       const corpoJson = () => lerJson(req);
       if (path === "/auditoria" && metodo === "GET") return enviar(200, audit.listar());
+      const respAtualizacao = rotaAtualizacao(
+        { runDir: opts.runDir ?? (process.env.ATM_RUN_DIR || undefined), versao: opts.versao ?? process.env.ATM_VERSAO }, metodo, path, humano,
+      );
+      if (respAtualizacao) return enviar(respAtualizacao.status, respAtualizacao.corpo);
       const respColetas = rotaColetas(coletasDeps, metodo, path, humano, corpoJson, { status: 403, corpo: NEGADO });
       if (respColetas) {
         const r = await respColetas;
