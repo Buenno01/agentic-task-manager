@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "start": "node server.js",
     "test": "vitest run",
+    "test:server": "node --test proxy.nodetest.mjs",
     "test:watch": "vitest",
     "e2e": "rm -rf \"${TMPDIR:-/tmp}/atm-ui-e2e\" && npm run build && playwright test",
     "typecheck": "tsc -b"

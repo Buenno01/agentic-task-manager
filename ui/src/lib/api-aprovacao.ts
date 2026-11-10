@@ -3,7 +3,7 @@ import { api, type Tarefa } from "@/lib/api";
 // Ações de estado do humano (daemon/src/domain/exploracao.ts, TRANSICOES): POST /tarefas/:id/<ação>.
 // Só transporte: a API valida quem pode e de qual estado (403/409 chegam como ApiError).
 
-/** "aprovar-subtarefa" é a Aprovação de Subtarefa proposta pelo agente (ticket 08). */
+/** "aprovar-subtarefa" é a Aprovação de Subtarefa proposta pelo agente. */
 export type AcaoAprovacao = "autorizar" | "forcar-inicio" | "aprovar" | "aprovar-subtarefa" | "rejeitar" | "reabrir";
 
 export const executarAcao = (id: string, acao: AcaoAprovacao, motivo?: string) =>

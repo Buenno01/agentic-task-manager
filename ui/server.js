@@ -3,6 +3,7 @@
 import { createServer, request as httpRequest } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { cabecalhosDoProxy, destinoDoProxy } from "./proxy.js";
 
 const tipos = {
   ".html": "text/html; charset=utf-8",
@@ -21,8 +22,9 @@ const porta = Number(process.env.UI_PORT ?? 5173);
 const api = new URL(process.env.ATM_API_URL ?? "http://127.0.0.1:3000");
 
 function repassar(req, res) {
-  const destino = new URL(req.url.replace(/^\/api/, "") || "/", api);
-  const saida = httpRequest(destino, { method: req.method, headers: { ...req.headers, host: api.host } }, (resp) => {
+  const destino = destinoDoProxy(req.url, api);
+  if (!destino) return void res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "Caminho inválido" }));
+  const saida = httpRequest(destino, { method: req.method, headers: cabecalhosDoProxy(req.headers, api) }, (resp) => {
     res.writeHead(resp.statusCode ?? 502, resp.headers);
     resp.pipe(res);
   });
@@ -41,7 +43,12 @@ async function servir(caminho) {
 createServer(async (req, res) => {
   if (req.url === "/api" || req.url.startsWith("/api/")) return repassar(req, res);
   const url = new URL(req.url, "http://x");
-  const pedido = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  let pedido;
+  try {
+    pedido = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  } catch {
+    return void res.writeHead(400).end();
+  }
   try {
     const [corpo, tipo] = await servir(pedido === "/" || pedido === "." ? "index.html" : pedido);
     const cache = pedido.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";

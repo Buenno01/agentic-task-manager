@@ -11,4 +11,4 @@ A UI deixa de ser "mínima", em HTML e JS puros sem build, e passa a ser uma SPA
 
 ## Consequences
 
-A UI passa a ter etapa de build: `ui/Dockerfile` e `serve.js` servem o `dist/`. Trocar de framework depois custa caro. Dashboard e monitoramento visual continuam fora do escopo. Aprovar por atalho de teclado sempre passa por diálogo de confirmação que mostra o plano e a Área prevista.
+A UI passa a ter etapa de build: `ui/Dockerfile` e `server.js` servem o `dist/` e repassam `/api/*` ao daemon (sem CORS, token só no proxy de mesmo origin). Trocar de framework depois custa caro. Dashboard e monitoramento visual continuam fora do escopo. Aprovar por atalho de teclado sempre passa por diálogo de confirmação que mostra o plano e a Área prevista.
