@@ -1,6 +1,6 @@
 /** Histórico de uma Tarefa: linha do tempo imutável de comentários, transições e Aprovações. */
 
-export const TIPOS_COMENTARIO = ["comentario", "pergunta", "resposta"] as const;
+export const TIPOS_COMENTARIO = ["comentario", "pergunta", "resposta", "plano"] as const;
 export type TipoComentario = (typeof TIPOS_COMENTARIO)[number];
 
 export interface ItemHistorico {

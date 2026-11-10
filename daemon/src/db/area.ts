@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 /** Persistência da Área prevista por Tarefa (conexão própria, mesmo arquivo SQLite). */
-export function abrirArea(path: string) {
+export function abrirArea(path: string, mascarar: (s: string) => string = (s) => s) {
   const db = new DatabaseSync(path);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -25,7 +25,8 @@ export function abrirArea(path: string) {
     },
     mapa: () => new Map((todas.all() as { id: string; paths: string }[]).map((r) => [r.id, JSON.parse(r.paths) as string[]])),
     /** Grava a Área e o evento no histórico (estado inalterado). */
-    definir(id: string, paths: string[], autor: string, estado: string) {
+    definir(id: string, bruto: string[], autor: string, estado: string) {
+      const paths = bruto.map((p) => mascarar(p));
       db.exec("BEGIN");
       try {
         up.run(id, JSON.stringify(paths));

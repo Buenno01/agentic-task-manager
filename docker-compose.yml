@@ -10,7 +10,25 @@ services:
       ATM_DB_PATH: /data/db/atm.db
       ATM_ATTACHMENTS_DIR: /data/attachments
       ATM_HUMAN_TOKEN: ${ATM_HUMAN_TOKEN:?defina ATM_HUMAN_TOKEN no .env}
-      ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:-}
+      ATM_AGENT_TOKENS: ${ATM_AGENT_TOKENS:?defina ATM_AGENT_TOKENS no .env, incluindo orquestrador:<token>}
+      # O processo do agente alcança o MCP pela rede do Compose (ADR-0008).
+      ATM_MCP_URL: http://mcp:3100/mcp
+      ATM_WORKSPACES_DIR: /data/workspaces
+      # Logs por Rodada (saída grande) em /data/logs/<rodada>/ (volume atm-logs).
+      ATM_LOGS_DIR: /data/logs
+      # Token do GitHub (escopo mínimo, ADR-0001): só Rodadas de Execução, via GIT_ASKPASS; nunca na URL do remote.
+      ATM_GITHUB_TOKEN: ${ATM_GITHUB_TOKEN:-}
+      ATM_MAX_RODADAS: ${ATM_MAX_RODADAS:-2}
+      # Executor (ADR-0009): "hermes" liga o adaptador; vazio = não configurado. Chaves do provedor são repassadas só ao agente.
+      ATM_EXECUTOR: ${ATM_EXECUTOR:-}
+      ATM_HERMES_MODEL: ${ATM_HERMES_MODEL:-}
+      ATM_HERMES_MAX_TURNS: ${ATM_HERMES_MAX_TURNS:-}
+      ATM_HERMES_RUN_BUDGET: ${ATM_HERMES_RUN_BUDGET:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Clones dos repositórios dos Contextos (volume atm-repos); os Workspaces são worktrees deles.
+      ATM_REPOS_DIR: /data/repos
       # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
       ATM_CORS_ORIGIN: ${ATM_CORS_ORIGIN:-}
     ports:
@@ -19,6 +37,8 @@ services:
       - atm-db:/data/db
       - atm-attachments:/data/attachments
       - atm-logs:/data/logs
+      - atm-workspaces:/data/workspaces
+      - atm-repos:/data/repos
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 5s
@@ -58,6 +78,7 @@ services:
     environment:
       UI_HOST: 0.0.0.0
       UI_PORT: "5173"
+      ATM_API_URL: http://daemon:3000
     ports:
       - "127.0.0.1:${UI_PORT:-5173}:5173"
     healthcheck:
@@ -70,3 +91,5 @@ volumes:
   atm-db:
   atm-attachments:
   atm-logs:
+  atm-workspaces:
+  atm-repos:

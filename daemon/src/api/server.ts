@@ -4,7 +4,12 @@ import { abrirBanco } from "../db/index.ts";
 import { TRANSICOES } from "../domain/exploracao.ts";
 import { ErroValidacao, novaTarefa } from "../domain/tarefa.ts";
 import { abrirContextos } from "../db/contextos.ts";
-import { rotaContextos } from "./contextos.ts";
+import { rotaContextos, cadeia } from "./contextos.ts";
+import { resolverContexto } from "../domain/contexto.ts";
+import { criarWorkspaces } from "../workspace/workspace.ts";
+import { liberarSeTerminal, rotaWorkspaces, type DepsWorkspaces } from "./workspaces.ts";
+import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { abrirAnexos } from "../db/anexos.ts";
 import { dispositionSegura, LIMITE_ANEXO_PADRAO, rotaAnexos, tipoSeguro } from "./anexos.ts";
 import { ErroCorpoGrande, LIMITE_JSON, lerCorpoLimitado } from "./corpo.ts";
@@ -24,10 +29,37 @@ import { criarDiretoNaExecucao, rotaExecucao } from "./execucao.ts";
 import { abrirModuloSubtarefas } from "./subtarefas.ts";
 import { abrirBusca } from "../db/busca.ts";
 import { rotaBusca } from "./busca.ts";
+import { abrirRodadas } from "../db/rodadas.ts";
+import { criarRodadas } from "../rodada/executar.ts";
+import { criarVigiaSobreposicao } from "../rodada/sobreposicao.ts";
+import { rotaUso } from "./uso.ts";
+import { podeRetomar, recuperarInterrompidas } from "../rodada/falha.ts";
+import { rotaRodadas } from "./rodadas.ts";
+import { criarEntrega, type CriarPr } from "../rodada/entrega.ts";
+import { criarLogs } from "../rodada/logs.ts";
+import { criarMascarador, segredosDasCredenciais, segredosDoAmbiente } from "../seguranca/mascarador.ts";
+import { executorNaoConfigurado, type Executor } from "../executor/executor.ts";
+import { AUTOR_ORQUESTRADOR, criarOrquestrador, type Orquestrador, type OpcoesOrquestrador } from "../orquestrador/orquestrador.ts";
+import { abrirColetas } from "../db/coletas.ts";
+import { rotaColetas } from "./coletas.ts";
+import type { DepsColetas } from "../coleta/deps.ts";
+import { abrirAnomalias } from "../db/anomalias.ts";
+import { abrirAnalises } from "../db/analise.ts";
+import { criarAnalise } from "../coleta/analise.ts";
+import { abrirRevisoes } from "../db/revisoes.ts";
+import { abrirFalhasHumanas } from "../db/falhas-humanas.ts";
+import { criarRegistroDeFalhaHumana } from "../coleta/falha-humana.ts";
+import { criarAgendador, type OpcoesAgendador } from "../coleta/agendador.ts";
+import { clienteNaoConfigurado, clientePorFonte, type ClienteColeta } from "../coleta/cliente.ts";
+import { criarClienteShopify, type OpcoesShopify } from "../coleta/shopify.ts";
 import { apenasHumano, autenticar, rotuloAutor, type Autor, type Credenciais } from "../auth/credenciais.ts";
 
 export interface Daemon {
   url: string;
+  /** Uma varredura do orquestrador (aguarda terminar); no-op se desligado. */
+  varrer(): Promise<void>;
+  /** Uma varredura do agendador de Coletas (aguarda terminar); no-op se desligado. */
+  varrerColetas(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -41,6 +73,28 @@ export interface OpcoesDaemon {
   anexoMaxBytes?: number;
   /** Origens CORS permitidas (padrão: a UI local em :5173). */
   corsOrigins?: string[];
+  /** Adaptador do Executor (injetável; testes usam o falso). Padrão: nenhum configurado. */
+  executor?: Executor;
+  /** Raiz dos Workspaces das Rodadas (padrão: ATM_WORKSPACES_DIR ou ./data/workspaces). */
+  workspacesDir?: string;
+  /** Volume dos clones (padrão: ATM_REPOS_DIR ou ../repos ao lado dos Workspaces). */
+  reposDir?: string;
+  /** URL do MCP entregue ao processo do agente (ADR-0008; padrão: ATM_MCP_URL ou http://mcp:3100/mcp). */
+  mcpUrl?: string;
+  /** Orquestrador (RF14). `false` desliga; sem Executor injetado ele também fica desligado. */
+  orquestrador?: OpcoesOrquestrador | false;
+  /** Agenda `fn` daqui a `ms` (SIGKILL 10 s após o SIGTERM do cancelamento); injetável nos testes. */
+  temporizador?: (fn: () => void, ms: number) => () => void;
+  /** Mata o processo órfão de uma Rodada interrompida no boot (injetável nos testes). */
+  matarProcesso?: (pid: number) => boolean;
+  /** Cria o PR da entrega em modo `pr` (injetável; padrão: push via GIT_ASKPASS + API do GitHub com ATM_GITHUB_TOKEN). */
+  criarPr?: CriarPr;
+  /** Logs por Rodada em `<logsDir>/<rodada>/` (padrão: ATM_LOGS_DIR ou /data/logs, volume atm-logs). */
+  logsDir?: string;
+  /** Token do GitHub (padrão: ATM_GITHUB_TOKEN); só entra em Rodadas de Execução, via GIT_ASKPASS. */
+  githubToken?: string;
+  /** Coleta de métricas (Monitoramento): cliente da fonte e relógio (ms), injetáveis nos testes. */
+  coleta?: { cliente?: ClienteColeta; relogio?: () => number; agendador?: OpcoesAgendador; shopify?: OpcoesShopify };
 }
 
 export const CORS_ORIGENS_PADRAO = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -77,17 +131,22 @@ const NEGADO = { error: "Apenas o humano pode fazer isso" };
 export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
   if (!opts?.credenciais) throw new Error("startDaemon exige credenciais explícitas (recusa iniciar sem autenticação)");
   const credenciais = opts.credenciais;
+  const tokenGithub = () => opts.githubToken ?? process.env.ATM_GITHUB_TOKEN;
+  // Mascarador (ADR-0001/0007): tokens humano e de agentes, token do GitHub e chaves de provedor do ambiente.
+  const mascarador = criarMascarador(() => segredosDasCredenciais(credenciais), () => segredosDoAmbiente(), () => [tokenGithub()]);
+  const logsDir = opts.logsDir ?? process.env.ATM_LOGS_DIR ?? "/data/logs";
+  const logs = criarLogs(logsDir, mascarador);
   const origensCors = opts.corsOrigins?.length ? opts.corsOrigins : CORS_ORIGENS_PADRAO;
-  const repo = abrirBanco(opts.dbPath);
+  const repo = abrirBanco(opts.dbPath, mascarador.texto);
   const ctx = abrirContextos(opts.dbPath);
   const audit = abrirAuditoria(opts.dbPath);
   const exec = abrirExecucao(opts.dbPath);
   const anexos = abrirAnexos(opts.dbPath, opts.anexosDir ?? process.env.ATM_ATTACHMENTS_DIR ?? "./data/attachments");
-  const coment = abrirComentarios(opts.dbPath);
+  const coment = abrirComentarios(opts.dbPath, mascarador.texto);
   const deps = abrirModuloDependencias(opts.dbPath, repo);
   const prios = abrirPrioridades(opts.dbPath);
   const subs = abrirModuloSubtarefas(opts.dbPath, repo);
-  const areaDb = abrirArea(opts.dbPath);
+  const areaDb = abrirArea(opts.dbPath, mascarador.texto);
   const area = criarArea(repo, ctx, areaDb);
   const comContexto = <T extends { id: string }>(t: T) =>
     area.decorar({
@@ -97,8 +156,124 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       ...subs.anexar(t.id),
       priority: prios.obter(t.id),
     });
-  const cons = abrirConsolidado(opts.dbPath);
+  const cons = abrirConsolidado(opts.dbPath, mascarador.texto);
   const buscaDb = abrirBusca(opts.dbPath);
+  const rodadasDb = abrirRodadas(opts.dbPath, mascarador.texto);
+  const coletasDb = abrirColetas(opts.dbPath, mascarador.texto);
+  coletasDb.interromperPendentes(new Date());
+  const revisoesDb = abrirRevisoes(opts.dbPath, mascarador.texto);
+  const anomaliasDb = abrirAnomalias(opts.dbPath);
+  const analisesDb = abrirAnalises(opts.dbPath);
+  const analise = criarAnalise({ repo, ctx, prios, coment, analises: analisesDb, relogio: opts.coleta?.relogio ?? Date.now, mudou: () => orq?.mudou() });
+  const falhasHumanasDb = abrirFalhasHumanas(opts.dbPath);
+  const registrarFalhaHumana = criarRegistroDeFalhaHumana({
+    armazem: falhasHumanasDb,
+    obterTarefa: (id) => repo.obterTarefa(id),
+    criarTarefa: (contextId, title, description) => {
+      const t = novaTarefa({ title, description });
+      repo.inserirTarefa(t);
+      ctx.associarTarefa(t.id, contextId);
+      return t.id;
+    },
+    registrarEvento: (id, ev) => repo.registrarEvento(id, ev),
+  });
+  const coletasDeps: DepsColetas = {
+    store: coletasDb,
+    revisoes: revisoesDb,
+    anomalias: anomaliasDb,
+    aoDetectarAnomalia: analise.aoDetectarAnomalia,
+    aoVarrerColetor: analise.processarFechamentos,
+    // Resposta crua com erro, já mascarada, só em disco (`<logsDir>/coletas/<coleta>/<periodo>.txt`); EACCES é tratado por quem chama.
+    gravarRespostaBruta: (coletaId, period, texto) => {
+      const dir = join(logsDir, "coletas", coletaId);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${period}.txt`), texto);
+    },
+    aoFalharComAcaoHumana: (f) =>
+      registrarFalhaHumana({
+        coletorId: f.coletor.id,
+        contextId: f.coletor.contextId,
+        source: f.coletor.source,
+        loja: typeof f.coletor.params.shop === "string" ? f.coletor.params.shop : undefined,
+        categoria: f.categoria,
+        period: f.period,
+        mensagem: f.mensagem,
+        agora: f.agora,
+      }),
+    cliente: clientePorFonte(opts.coleta?.cliente ?? clienteNaoConfigurado, criarClienteShopify(opts.coleta?.shopify)),
+    relogio: opts.coleta?.relogio ?? Date.now,
+    mascarador,
+    contextoExiste: (i: string) => !!ctx.obter(i),
+    emVoo: new Set<Promise<void>>(),
+  };
+  // Agendador das Coletas diárias (opt-in); a primeira varredura é a recuperação do boot.
+  const agendador = opts.coleta?.agendador ? criarAgendador(coletasDeps, opts.coleta.agendador) : undefined;
+  void agendador?.varrer();
+  let urlDaemon = "";
+  let orq: Orquestrador | undefined;
+  const workspacesDir = opts.workspacesDir ?? process.env.ATM_WORKSPACES_DIR ?? "./data/workspaces";
+  const workspaces = criarWorkspaces({ reposDir: opts.reposDir ?? process.env.ATM_REPOS_DIR ?? join(workspacesDir, "..", "repos"), workspacesDir });
+  const reposDaTarefa = (tarefaId: string) => {
+    const c = ctx.obter(ctx.contextoDaTarefa(tarefaId) ?? "");
+    const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
+    return { repositorio: r?.repository ?? null, consulta: r?.referenceRepositories ?? [] };
+  };
+  const depsWorkspaces: DepsWorkspaces = {
+    workspaces,
+    workspacesDir,
+    obterTarefa: (id) => repo.obterTarefa(id),
+    rodadaAtiva: (id) => !!rodadasDb.ativaDaTarefa(id),
+  };
+  const entregar = criarEntrega({ criarPr: opts.criarPr, token: tokenGithub });
+  const rodadasCtl = criarRodadas({
+    logs,
+    tokenGithub,
+    repo,
+    rodadas: rodadasDb,
+    executor: opts.executor ?? executorNaoConfigurado,
+    workspaces,
+    reposDaTarefa,
+    vigiaSobreposicao: criarVigiaSobreposicao({ repo, rodadas: rodadasDb, visao: area.visao }),
+    consolidadoDaTarefa: (id) => {
+      const c = ctx.contextoDaTarefa(id);
+      return (c && cons.atual(c)?.text) || "";
+    },
+    mcpUrl: opts.mcpUrl ?? process.env.ATM_MCP_URL ?? "http://mcp:3100/mcp",
+    tokenAgente: credenciais.agentes.orquestrador ?? "",
+    apiUrl: () => urlDaemon,
+    aoTerminar: () => orq?.mudou(),
+    relogio: opts.orquestrador ? opts.orquestrador.relogio : undefined,
+    temporizador: opts.temporizador,
+  });
+  if (opts.executor && opts.orquestrador !== false) {
+    orq = criarOrquestrador(
+      {
+        tarefas: () => repo.listarTarefas(),
+        prioridade: (id) => prios.obter(id),
+        contextos: () => ctx.listar(),
+        contextoDaTarefa: (id) => ctx.contextoDaTarefa(id),
+        emAndamento: () => rodadasDb.emAndamento(),
+        totalRodadas: (id) => rodadasDb.totalDaTarefa(id),
+        dependenciasPendentes: (id) => deps.anexar(id).dependenciasPendentes.length,
+        foiForcada: (id) => repo.listarEventos(id).some((e) => e.tipo === "forcar-inicio"),
+        marcarInicio: (t, para, tipo) =>
+          repo.transicionar(t.id, { autor: AUTOR_ORQUESTRADOR, tipo, de: t.state, para, motivo: "Rodada iniciada pelo orquestrador" }),
+        iniciarRodada: (id, tipo) => rodadasCtl.iniciar(id, tipo),
+        precisaRetomar: (id, agoraMs) => {
+          const rs = rodadasDb.listarDaTarefa(id);
+          return podeRetomar({ ultima: rs[rs.length - 1], eventosTarefa: repo.listarEventos(id), agoraMs });
+        },
+      },
+      opts.orquestrador || undefined,
+    );
+  }
+  // Boot: Rodadas que ficaram "em andamento" (crash) viram "interrompidas"; não contam como falha.
+  const recuperacao = recuperarInterrompidas({
+    repo,
+    rodadas: rodadasDb,
+    checkpointAutomatico: (id, motivo) => rodadasCtl.checkpointAutomatico(id, motivo),
+    matar: opts.matarProcesso,
+  });
   const server = createServer(async (req, res) => {
     // Autenticação e auditoria (ADR-0001): toda ação autenticada registra o autor.
     // Sondagens (/health, OPTIONS) não entram na auditoria.
@@ -107,9 +282,29 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
     let autor: Autor | undefined;
     let path = "/";
     let auditar = true;
+    /** Mudança de estado feita pelo humano (rejeitar, reabrir, pausar, campo-chave) cancela a Rodada em curso; prioridade não. */
+    const cancelarSeMudouEstado = (caminho: string, quemFez: Autor | undefined) => {
+      const m = caminho.match(/^\/tarefas\/([^/]+)\/(.+)$/);
+      if (!m || !quemFez) return;
+      const [, id, recurso] = m;
+      if (/^(rodadas|checkpoints?|perguntar|entregar|prioridade)$/.test(recurso)) return;
+      if (!apenasHumano(quemFez) && recurso !== "execucao") return;
+      const t = repo.obterTarefa(id);
+      if (!t) return;
+      // Cancela a Rodada em curso (se houver) e, estando a Tarefa em estado terminal, remove o worktree depois.
+      const ativa = rodadasDb.ativaDaTarefa(id);
+      const andamento = (t.phase === "Exploração" && t.state === "Explorando") || (t.phase === "Execução" && t.state === "Em execução");
+      const cancelamento = ativa && !andamento
+        ? rodadasCtl.cancelarDaTarefa(id, `${recurso}: Tarefa agora em ${t.phase} · ${t.state}`)
+        : Promise.resolve(0);
+      void cancelamento.then(() => liberarSeTerminal(depsWorkspaces, id)).catch((e) => console.error(e));
+    };
     const enviar = (status: number, corpo?: unknown) => {
       if (auditar) audit.registrar(autor ? rotuloAutor(autor) : "anonimo", metodo, path, status);
       envio(res, cors, status, corpo);
+      if (metodo !== "GET" && status < 300) cancelarSeMudouEstado(path, autor);
+      // Mudança de estado de Tarefa (ou criação): o orquestrador reavalia a fila.
+      if (metodo !== "GET" && status < 300) orq?.mudou();
     };
     try {
       const url = new URL(req.url ?? "/", "http://x");
@@ -130,17 +325,66 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const humano = apenasHumano(autor);
       const corpoJson = () => lerJson(req);
       if (path === "/auditoria" && metodo === "GET") return enviar(200, audit.listar());
+      const respColetas = rotaColetas(coletasDeps, metodo, path, humano, corpoJson, { status: 403, corpo: NEGADO });
+      if (respColetas) {
+        const r = await respColetas;
+        return enviar(r.status, r.corpo);
+      }
+      const respWorkspaces = rotaWorkspaces(depsWorkspaces, metodo, path, humano);
+      if (respWorkspaces) {
+        const r = await respWorkspaces;
+        return enviar(r.status, r.corpo);
+      }
       const respBusca = rotaBusca(
         { busca: buscaDb, anexos, consolidado: cons, contextoExiste: (i) => !!ctx.obter(i), contextos: () => ctx.listar(), contextoDaTarefa: (i) => ctx.contextoDaTarefa(i) },
         metodo, path, url.searchParams,
       );
       if (respBusca) return enviar(respBusca.status, respBusca.corpo);
       const respHistorico = rotaHistorico(
-        { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i) },
+        { comentarios: coment, tarefaExiste: (i) => !!repo.obterTarefa(i), transicoes: (i) => repo.listarEventos(i),
+          aoResponder: (i, a) => {
+            // Só a resposta do humano a uma pergunta do agente devolve a Tarefa ao andamento.
+            const t = repo.obterTarefa(i);
+            if (!humano || !t || t.state !== "Aguardando humano") return;
+            const ultima = repo.listarEventos(i).filter((e) => e.para === "Aguardando humano").at(-1);
+            const retomar = ultima?.tipo === "pedir-humano" ? "retomar" : ultima?.tipo === "aguardar-humano-execucao" ? "retomar-execucao" : undefined;
+            if (!retomar) return;
+            const todos = coment.listar(i);
+            const abertas = todos.filter((c) => c.tipo === "pergunta" && !todos.some((r) => r.respondeA === c.id));
+            if (abertas.length) return;
+            repo.transicionar(i, { autor: a, tipo: retomar, de: t.state, para: t.phase === "Exploração" ? "Explorando" : "Em execução", motivo: "Pergunta respondida" });
+          },
+        },
         metodo, path, quem, corpoJson,
       );
       if (respHistorico) {
         const r = await respHistorico;
+        return enviar(r.status, r.corpo);
+      }
+      const respUso = rotaUso(repo, rodadasDb, metodo, path);
+      if (respUso) return enviar(respUso.status, respUso.corpo);
+      const respRodadas = rotaRodadas(
+        {
+          repo, rodadas: rodadasDb, comentarios: coment,
+          iniciar: (id, tipo) => rodadasCtl.iniciar(id, tipo),
+          checkpointDoAgente: (rodadaId, dados) => rodadasCtl.checkpointDoAgente(rodadaId, dados),
+          orquestradorConfigurado: !!credenciais.agentes.orquestrador,
+          definirArea: (id, paths, autor, estado) => areaDb.definir(id, paths, autor, estado),
+          decorar: comContexto,
+          contextoDaTarefa: (id) => ctx.contextoDaTarefa(id),
+          atualizarConsolidado: (id, texto, autor, rodadaId) => {
+            cons.atualizar(ctx.contextoDaTarefa(id)!, texto, id, autor, rodadaId);
+          },
+          entregarExecucao: (p) => {
+            const c = ctx.obter(ctx.contextoDaTarefa(p.tarefaId) ?? "");
+            const r = c ? resolverContexto(cadeia(ctx, c)) : undefined;
+            return entregar({ ...p, repositorio: r?.repository ?? null, modo: r?.deliveryMode ?? null });
+          },
+        },
+        metodo, path, autor, corpoJson,
+      );
+      if (respRodadas) {
+        const r = await respRodadas;
         return enviar(r.status, r.corpo);
       }
       // Ciclo de vida da Exploração: guarda apenasHumano antes de qualquer outra checagem.
@@ -194,7 +438,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       }
       const respArea = await area.rota(metodo, path, corpoJson, quem);
       if (respArea) return enviar(respArea.status, respArea.corpo);
-      const respConsolidado = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), quem, metodo, path, corpoJson);
+      const respConsolidado = rotaConsolidado(cons, (i) => !!ctx.obter(i), (i) => !!repo.obterTarefa(i), quem, metodo, path, corpoJson, (r) => rodadasDb.obter(r)?.tarefaId);
       if (respConsolidado) {
         const r = await respConsolidado;
         return enviar(r.status, r.corpo);
@@ -254,14 +498,22 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       enviar(500, { error: "Erro interno" });
     }
   });
-  return new Promise((resolve) => {
+  return recuperacao.then(() => new Promise<Daemon>((resolve) => {
     server.listen(opts.port, opts.host ?? "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
+      urlDaemon = `http://127.0.0.1:${port}`;
       resolve({
-        url: `http://127.0.0.1:${port}`,
-        close: () =>
-          new Promise<void>((r) => {
+        url: urlDaemon,
+        varrer: async () => void (await orq?.varrer()),
+        varrerColetas: async () => void (await agendador?.varrer()),
+        close: async () => {
+          agendador?.parar();
+          await orq?.parar();
+          await rodadasCtl.encerrar();
+          await Promise.allSettled([...coletasDeps.emVoo]);
+          await new Promise<void>((r) => {
             server.close(() => {
+              rodadasDb.close();
               repo.close();
               ctx.close();
               audit.close();
@@ -274,11 +526,17 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
               areaDb.close();
               cons.close();
               buscaDb.close();
+              coletasDb.close();
+              revisoesDb.close();
+              anomaliasDb.close();
+              analisesDb.close();
+              falhasHumanasDb.close();
               r();
             });
             server.closeAllConnections();
-          }),
+          });
+        },
       });
     });
-  });
+  }));
 }

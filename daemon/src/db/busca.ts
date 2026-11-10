@@ -14,7 +14,7 @@ export function consultaFts(consulta: string): string | null {
 }
 
 /**
- * Índices FTS5 de Tarefas (título + descrição) e comentários (ticket 13), mantidos por TRIGGERS
+ * Índices FTS5 de Tarefas (título + descrição) e comentários (busca textual), mantidos por TRIGGERS
  * nas tabelas `tarefas` e `tarefa_comentarios` — qualquer caminho de escrita (inclusive criação direta na
  * Execução) fica indexado. Ao abrir, linhas que já existiam antes dos índices são indexadas (backfill).
  * Deve ser aberto DEPOIS de abrirBanco/abrirComentarios (as tabelas-base precisam existir).

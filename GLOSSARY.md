@@ -74,6 +74,7 @@ Alteração em campo-chave de um plano aprovado (repositório principal, critér
 **Rodada** (Run):
 Cada tentativa de um agente trabalhar em uma Tarefa. Uma Tarefa pode ter várias. Falha ou reinício gera nova Rodada, partindo do último checkpoint da anterior.
 _Avoid_: Execução (colide com a Fase), job, tentativa
+_Nota_: o **tipo da Rodada** (Exploração ou Execução) é só o nome da Fase em que a Tarefa estava ao iniciá-la; não é um segundo conceito de "execução".
 
 **Segmento** (Segment):
 Trecho de uma Rodada com um mesmo modelo e provedor. Trocar de modelo no meio abre novo Segmento na mesma Rodada, com seu próprio registro de tokens.
@@ -120,7 +121,15 @@ Registro imutável do que uma Coleta obteve para um período. A visão consolida
 Registro de que um período já coletado mudou na fonte, com valor anterior e novo. Recoletar um período é idempotente: não duplica, só gera Revisão se algo mudou.
 
 **Lacuna** (Gap):
-Período sem dados por falha de Coleta. Fica consultável pela API e pode ser recuperada depois.
+Período sem dados por falha de Coleta. Fica consultável pela API e pode ser recuperado depois. Quando só faltam algumas métricas (a Coleta foi parcial), é uma **Lacuna parcial**: o período tem Snapshot, e a Lacuna lista as métricas ausentes e a causa.
+
+**Coleta parcial** (Partial collection):
+Coleta que termina com sucesso, mas sem parte das métricas, por exemplo sessões e conversão quando o ShopifyQL falha ou a loja não tem analytics. Pedidos, receita e produtos são gravados; as métricas ausentes ficam explícitas como ausentes, nunca como zero, e o período entra como Lacuna parcial até uma recoleta completá-lo. A Anomalia não avalia métrica ausente.
+_Avoid_: Coleta falha (a Coleta parcial conclui; falha é a que não grava Snapshot)
+
+**Análise de monitoramento** (Monitoring analysis):
+Tarefa de Exploração criada sozinha no Contexto do Coletor quando uma Anomalia é detectada ou um período fecha (padrão: semanal, segunda 07:00 no fuso da loja, analisando a semana anterior; também `mensal` ou `nenhum`), mesmo sem Anomalia. Nasce "Novo", prioridade média com justificativa automática, corpo de um template fixo somado às instruções do Contexto e Perfil de agente herdado dele. Havendo uma aberta do mesmo Coletor, Anomalias e fechamentos novos se anexam a ela como evidência. Com `analise_automatica` ligada no Coletor nasce "Autorizada para explorar": pré-autorização explícita e rastreável, só para Exploração; o agente continua sem aprovar nada. As oportunidades que o agente encontra entram como Tarefas "Novo".
+_Avoid_: Relatório, dashboard
 
 ### Isolamento
 
@@ -141,9 +150,9 @@ API HTTP local. Núcleo das regras de negócio e fonte única de verdade.
 **MCP** (MCP):
 Adaptador para agentes sobre a API. Expõe ferramentas estruturadas e nenhuma de aprovação.
 
-**UI mínima** (Minimal UI):
+**UI** (UI):
 Projeto independente que consome apenas a API. É o lugar onde o humano opera as filas, comenta e aprova.
-_Avoid_: Dashboard (não há dashboard de monitoramento no MVP)
+_Avoid_: UI mínima (nome antigo), Dashboard (não há dashboard de monitoramento no MVP)
 
 ### Pessoas e permissões
 

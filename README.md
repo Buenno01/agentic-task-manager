@@ -5,7 +5,7 @@ Ver `GLOSSARY.md`, `docs/adr/` e `.scratch/nucleo/spec.md`.
 ## Estrutura
 
 - `daemon/` — daemon TypeScript/Node + SQLite + API HTTP (ADR-0005, ADR-0007). Módulos: `src/api` (HTTP), `src/db` (SQLite), `src/domain` (regras).
-- `ui/` — SPA mínima, projeto independente; fala só com a API.
+- `ui/` — SPA (React, TypeScript, Vite, Tailwind, shadcn/ui; ADR-0010), projeto independente; fala só com a API. Dev: `cd ui && npm ci && npm run dev` (proxy `/api` → daemon, sem CORS); testes: `npm test`; E2E do fluxo de Aprovação: `npm run e2e` (sobe daemon real com banco temporário e tokens descartáveis + build da UI em portas 4391/4392, semeia pela API; requer o Chromium do Playwright, ou `E2E_CHROMIUM_PATH=<chromium>` para usar um já instalado; fonte em `ui/e2e/`); produção: Docker serve o build em :5173. Ainda não estão na nova UI: editar a Área prevista e as ações da fase Execução (converter, iniciar, aguardar, retomar, validar, concluir); use a API para isso.
 
 ## Rodar
 
@@ -14,7 +14,7 @@ Requer Node >= 24 (usa `node:sqlite` e execução de TypeScript nativa).
 ```sh
 cd daemon && npm install
 npm start          # API em http://127.0.0.1:3000 (ATM_PORT, ATM_DB_PATH=./data/atm.db)
-cd ui && npm start # UI em http://127.0.0.1:5173 (?api=<url> para outra API)
+cd ui && npm ci && npm run dev    # UI em dev (Vite, proxy /api → daemon); `npm run build && npm start` serve o build em http://127.0.0.1:5173 (ATM_API_URL aponta a API)
 ```
 
 ## Docker Compose
@@ -33,12 +33,14 @@ API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`,
 
 ## Anexos (RF13)
 
-`POST /tarefas/:id/anexos?nome=x.pdf` e `POST /contextos/:id/anexos?nome=x.pdf` (corpo = bytes do arquivo, `Content-Type` vira o tipo; limite 25 MiB, 413 acima), `GET /{tarefas,contextos}/:id/anexos`, `GET /anexos/:id` (download), `GET /anexos/:id/texto` (texto extraído; 404 se não houver). Arquivos ficam em `ATM_ATTACHMENTS_DIR` (padrão `./data/attachments`) sob id gerado; o nome enviado é sanitizado. Texto é extraído de `.txt`, `.md`, `.docx` e `.pdf` e indexado em FTS5 (`anexos_fts`; `abrirAnexos().buscar()` para o ticket 13). Imagens e planilhas só ficam como arquivo. Limitação: PDF é melhor esforço (operadores Tj/TJ em streams Flate/sem filtro); fontes com codificação própria (CID/Identity-H), PDFs escaneados ou criptografados rendem texto vazio/parcial; `.docx` lê só o corpo (`word/document.xml`).
+`POST /tarefas/:id/anexos?nome=x.pdf` e `POST /contextos/:id/anexos?nome=x.pdf` (corpo = bytes do arquivo, `Content-Type` vira o tipo; limite 25 MiB, 413 acima), `GET /{tarefas,contextos}/:id/anexos`, `GET /anexos/:id` (download), `GET /anexos/:id/texto` (texto extraído; 404 se não houver). Arquivos ficam em `ATM_ATTACHMENTS_DIR` (padrão `./data/attachments`) sob id gerado; o nome enviado é sanitizado. Texto é extraído de `.txt`, `.md`, `.docx` e `.pdf` e indexado em FTS5 (`anexos_fts`; `abrirAnexos().buscar()` para a busca textual). Imagens e planilhas só ficam como arquivo. Limitação: PDF é melhor esforço (operadores Tj/TJ em streams Flate/sem filtro); fontes com codificação própria (CID/Identity-H), PDFs escaneados ou criptografados rendem texto vazio/parcial; `.docx` lê só o corpo (`word/document.xml`).
 
 ## Testes
 
 ```sh
 cd daemon && npm test && npm run typecheck
+cd ui && npm test && npm run typecheck && npm run build
+cd ui && npm run e2e   # E2E com Playwright; E2E_CHROMIUM_PATH=<chromium> usa um Chromium já instalado
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.
@@ -64,7 +66,7 @@ Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HT
 
 ## Contexto consolidado versionado (RF12)
 
-API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca do ticket 13.
+API: `GET /contextos/:id/consolidado` (versão atual; `version: 0` se vazio), `GET .../consolidado/versoes` (histórico completo), `PUT .../consolidado` com `{text, taskId?}` (cria nova versão numerada; `taskId` = Tarefa de origem; humano ou agente atualizam direto, autor gravado), `POST .../consolidado/reverter` com `{version?}` (padrão: a anterior à atual). Reverter cria uma NOVA versão com `revertedFrom`; nada é apagado. O texto de cada versão é indexado em `consolidado_fts` (FTS5, `buscar()` em `daemon/src/db/consolidado.ts`) para a busca textual.
 
 ## Fase Execução e mudança material (RF2, RF4, RF6, RF17)
 
@@ -82,7 +84,7 @@ Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas
 - `POST /tarefas` com `parentId`: cria Subtarefa sempre em Exploração · Novo (agente ou humano). Agente com `phase: "Execução"` recebe 403; mãe inexistente, 404. Cria o evento `subtarefa-criada` na mãe.
 - `PATCH /tarefas/:id` `{title?, description?}`: só humano, só Subtarefa (evento `editar`).
 - `POST /tarefas/:id/aprovar-subtarefa` (humano; Subtarefa em Novo → Aprovado) ou `rejeitar`/`reabrir`. A aprovada segue sozinha (ex.: `converter-execucao`), sem esperar a mãe.
-- Ajuste por comentário: `POST /tarefas/:id/comentarios` na Subtarefa ou na mãe (ticket 05).
+- Ajuste por comentário: `POST /tarefas/:id/comentarios` na Subtarefa ou na mãe (RF3, RF9).
 - `GET /tarefas/:id` (e `GET /tarefas`) devolvem `maeId`, `subtarefas[{id,title,state,decisao}]` e `resolucaoSubtarefas {total,aprovadas,rejeitadas,resolvida}`. Quando a última Subtarefa é aprovada/rejeitada grava o evento `mae-resolvida` na mãe; reabrir desfaz a resolução.
 
 ## Busca textual (RF11)
@@ -96,11 +98,15 @@ Relação mãe→filha na tabela lateral `subtarefas` (`daemon/src/db/subtarefas
 
 Pasta `mcp/`: cliente HTTP fino e independente da API do daemon (`ATM_API_URL`), sem regras de negócio: repassa chamadas e devolve os erros da API como `isError`. Usa **só o token do agente** (`ATM_AGENT_TOKEN`, um dos de `ATM_AGENT_TOKENS`; nunca logado). Por isso o agente não aprova, autoriza nem muda estado: a API devolve 403 e as Tarefas criadas ficam em Exploração · Novo.
 
-Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `buscar` (`/busca`), `comentar` (`/tarefas/:id/comentarios`), `criar_tarefa` e `criar_subtarefa` (`POST /tarefas`, esta com `parentId`), `ler_tarefa` (`/tarefas/:id` + `/eventos`). Não há ferramenta de aprovação, transição ou execução.
+Ferramentas: `ler_contexto` (`/contextos/:id/resolvido` + `/consolidado`), `buscar` (`/busca`), `comentar` (`/tarefas/:id/comentarios`), `criar_tarefa` e `criar_subtarefa` (`POST /tarefas`, esta com `parentId`), `ler_tarefa` (`/tarefas/:id` + `/eventos`), e, para Rodadas, `checkpoint` (`POST /tarefas/:id/checkpoint`), `perguntar` (`/perguntar`, leva a "Aguardando humano") e `entregar` (`/entregar`, leva a "Plano pronto para aprovação" ou "Em validação"). Não há ferramenta de aprovação, transição ou execução. O processo do agente de cada Rodada recebe `ATM_API_URL`, `ATM_MCP_URL` (`http://mcp:3100/mcp`) e `ATM_AGENT_TOKEN` do agente `orquestrador`, que é obrigatório em `ATM_AGENT_TOKENS` e deve ser o mesmo token do serviço `mcp` (ADR-0008). Rodadas: `GET|POST /tarefas/:id/rodadas` (POST só humano) e `GET /rodadas/:id`.
 
 - **HTTP (padrão):** Streamable HTTP em `http://127.0.0.1:3100/mcp` (`ATM_MCP_PORT`), publicado só em 127.0.0.1; dentro do Docker escuta em 0.0.0.0. Toda requisição precisa de `Authorization: Bearer <ATM_AGENT_TOKEN>`, senão 401. `GET /health` sem autenticação. O serviço `mcp` do `docker compose up` sobe depois do daemon saudável; sem `ATM_AGENT_TOKEN` no `.env` o compose recusa com mensagem clara.
 - **stdio:** `docker compose run --rm -i -e ATM_MCP_TRANSPORT=stdio mcp`, ou localmente `ATM_API_URL=... ATM_AGENT_TOKEN=... node mcp/src/main.ts --stdio`.
 - Local sem Docker: `cd mcp && npm ci && npm start` (host `ATM_MCP_HOST`, padrão 127.0.0.1). Testes: `npm test` (sobe o daemon real) e `npm run typecheck`.
+
+## Executor Hermes (ADR-0009)
+
+`ATM_EXECUTOR=hermes` liga o adaptador sobre `hermes chat --query-file … --format stream-json --in <workspace>` (opcionais: `ATM_HERMES_MODEL`, `ATM_HERMES_MAX_TURNS`, `ATM_HERMES_RUN_BUDGET`, `ATM_HERMES_BIN`); sem a variável, nenhum Executor está configurado e as Rodadas falham com essa mensagem. Valor desconhecido faz o daemon recusar iniciar. O agente recebe só `PATH`/`HOME`, o ambiente da Rodada e as chaves do provedor (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`…); nunca `ATM_HUMAN_TOKEN`/`ATM_GITHUB_TOKEN`. O uso de tokens vem do registro `result` do stream-json (não do `--usage-file`, que só vale em `--oneshot`); sem ele, "uso desconhecido". A imagem do daemon instala o Hermes pelo instalador oficial. A suíte automática nunca chama o modelo: o contrato do Executor roda no falso e, com `ATM_TESTE_HERMES=1`, no Hermes real; `ATM_TESTE_HERMES=1 scripts/verificar-hermes.sh` roda uma Tarefa de exemplo de ponta a ponta (custa tokens).
 
 ## Segurança e limites
 

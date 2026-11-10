@@ -7,9 +7,16 @@ export type TipoContexto = (typeof TIPOS_CONTEXTO)[number];
 /** Configuração estruturada: `null` significa "herdar do pai". */
 export interface ConfigContexto {
   repository: string | null;
+  /** Repositórios de consulta (somente leitura nos Workspaces). */
+  referenceRepositories: string[] | null;
   testCommands: string[] | null;
   concurrencyLimit: number | null;
+  /** Como a Execução entrega: `branch-local` (padrão) ou `pr` (GitHub, ADR-0001). */
+  deliveryMode: ModoEntrega | null;
 }
+
+export const MODOS_ENTREGA = ["branch-local", "pr"] as const;
+export type ModoEntrega = (typeof MODOS_ENTREGA)[number];
 
 export interface Contexto extends ConfigContexto {
   id: string;
@@ -45,6 +52,13 @@ function texto(v: unknown, campo: string): string | null {
 function config(e: Entrada): Partial<ConfigContexto> {
   const out: Partial<ConfigContexto> = {};
   if ("repository" in e) out.repository = texto(e.repository, "repository");
+  if ("referenceRepositories" in e) {
+    const v = e.referenceRepositories;
+    if (v === null) out.referenceRepositories = null;
+    else if (Array.isArray(v) && v.every((c) => typeof c === "string" && c.trim()))
+      out.referenceRepositories = v.map((c: string) => c.trim());
+    else throw new ErroValidacao("referenceRepositories deve ser uma lista de textos");
+  }
   if ("testCommands" in e) {
     const v = e.testCommands;
     if (v === null) out.testCommands = null;
@@ -57,6 +71,12 @@ function config(e: Entrada): Partial<ConfigContexto> {
     if (v === null) out.concurrencyLimit = null;
     else if (typeof v === "number" && Number.isInteger(v) && v >= 1) out.concurrencyLimit = v;
     else throw new ErroValidacao("concurrencyLimit deve ser um inteiro >= 1");
+  }
+  if ("deliveryMode" in e) {
+    const v = e.deliveryMode;
+    if (v === null) out.deliveryMode = null;
+    else if ((MODOS_ENTREGA as readonly unknown[]).includes(v)) out.deliveryMode = v as ModoEntrega;
+    else throw new ErroValidacao(`deliveryMode inválido (use: ${MODOS_ENTREGA.join(", ")})`);
   }
   return out;
 }
@@ -82,8 +102,10 @@ export function novoContexto(e: Entrada): Contexto {
     parentId: texto(e.parentId, "parentId"),
     instructions: typeof e.instructions === "string" ? e.instructions : "",
     repository: c.repository ?? null,
+    referenceRepositories: c.referenceRepositories ?? null,
     testCommands: c.testCommands ?? null,
     concurrencyLimit: c.concurrencyLimit ?? null,
+    deliveryMode: c.deliveryMode ?? null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -109,16 +131,20 @@ export function resolverContexto(cadeia: Contexto[]): ContextoResolvido {
   const r: ContextoResolvido = {
     id: alvo.id,
     repository: null,
+    referenceRepositories: null,
     testCommands: null,
     concurrencyLimit: null,
+    deliveryMode: null,
     path: cadeia.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
     instructions: [],
     instructionsText: "",
   };
   for (const c of cadeia) {
     if (c.repository !== null) r.repository = c.repository;
+    if (c.referenceRepositories !== null) r.referenceRepositories = c.referenceRepositories;
     if (c.testCommands !== null) r.testCommands = c.testCommands;
     if (c.concurrencyLimit !== null) r.concurrencyLimit = c.concurrencyLimit;
+    if (c.deliveryMode !== null) r.deliveryMode = c.deliveryMode;
     if (c.instructions.trim()) r.instructions.push({ contextId: c.id, name: c.name, text: c.instructions.trim() });
   }
   r.instructionsText = r.instructions.map((i) => i.text).join("\n\n");

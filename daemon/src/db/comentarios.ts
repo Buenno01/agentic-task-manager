@@ -10,7 +10,7 @@ export interface Comentarios {
 }
 
 /** Comentários só têm INSERT e SELECT: o histórico não é editável nem apagável. */
-export function abrirComentarios(path: string): Comentarios {
+export function abrirComentarios(path: string, mascarar: (s: string) => string = (s) => s): Comentarios {
   const db = new DatabaseSync(path);
   db.exec(`
     CREATE TABLE IF NOT EXISTS tarefa_comentarios (
@@ -38,7 +38,7 @@ export function abrirComentarios(path: string): Comentarios {
   return {
     inserir: (c) => {
       const id = randomUUID();
-      ins.run(id, c.tarefaId, agora(), c.autor, c.tipo, c.texto, c.respondeA ?? null);
+      ins.run(id, c.tarefaId, agora(), c.autor, c.tipo, mascarar(c.texto), c.respondeA ?? null);
       return item(um.get(id) as Record<string, unknown>);
     },
     obter: (id) => {

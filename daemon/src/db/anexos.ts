@@ -26,7 +26,7 @@ export function sanitizarNome(nome: string): string {
 
 /**
  * Anexos (RF13): arquivo em disco sob id gerado (ATM_ATTACHMENTS_DIR), metadados em SQLite
- * e texto extraído indexado em FTS5 (`anexos_fts`) para a busca do ticket 13.
+ * e texto extraído indexado em FTS5 (`anexos_fts`) para a busca textual.
  * FTS5 é obrigatório: sem ele a abertura falha com erro claro.
  */
 export function abrirAnexos(dbPath: string, dir: string) {
