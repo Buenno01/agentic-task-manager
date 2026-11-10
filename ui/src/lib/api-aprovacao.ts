@@ -4,7 +4,7 @@ import { api, type Tarefa } from "@/lib/api";
 // Só transporte: a API valida quem pode e de qual estado (403/409 chegam como ApiError).
 
 /** "aprovar-subtarefa" é a Aprovação de Subtarefa proposta pelo agente (ticket 08). */
-export type AcaoAprovacao = "aprovar" | "aprovar-subtarefa" | "rejeitar" | "reabrir";
+export type AcaoAprovacao = "autorizar" | "forcar-inicio" | "aprovar" | "aprovar-subtarefa" | "rejeitar" | "reabrir";
 
 export const executarAcao = (id: string, acao: AcaoAprovacao, motivo?: string) =>
   api<Tarefa>(`/tarefas/${id}/${acao}`, { method: "POST", ...(motivo !== undefined ? { body: { motivo } } : {}) });

@@ -71,6 +71,7 @@ function ItemSubtarefa({ resumo, aoAbrir }: { resumo: ResumoSubtarefa; aoAbrir: 
   const completa = useTarefa(resumo.id);
   const historico = useHistorico(resumo.id);
   const reabrir = useAcaoAprovacao(resumo.id);
+  const autorizar = useAcaoAprovacao(resumo.id);
   const { icone: Icone, cor } = aparenciaEstado(resumo.state);
 
   // Antes de a Tarefa completa chegar, o diálogo usa o resumo da mãe.
@@ -90,6 +91,11 @@ function ItemSubtarefa({ resumo, aoAbrir }: { resumo: ResumoSubtarefa; aoAbrir: 
           {resumo.title}
         </button>
         <span className="text-xs text-muted-foreground">{resumo.state}</span>
+        {novo && (
+          <Button size="sm" variant="outline" aria-label={`Autorizar ${resumo.title}`} disabled={autorizar.isPending} onClick={() => autorizar.mutate({ acao: "autorizar" })}>
+            Autorizar
+          </Button>
+        )}
         {aprovavel && (
           <Button size="sm" aria-label={`Aprovar ${resumo.title}`} onClick={() => setDialogo("aprovar")}>
             Aprovar
@@ -111,6 +117,11 @@ function ItemSubtarefa({ resumo, aoAbrir }: { resumo: ResumoSubtarefa; aoAbrir: 
           </Button>
         )}
       </div>
+      {autorizar.isError && (
+        <p role="alert" className="mt-1 text-xs text-destructive">
+          {autorizar.error.message}
+        </p>
+      )}
       {reabrir.isError && (
         <p role="alert" className="mt-1 text-xs text-destructive">
           {reabrir.error.message}

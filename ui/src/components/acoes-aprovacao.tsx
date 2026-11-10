@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { Tarefa } from "@/lib/api";
 import type { AcaoAprovacao, AvisoSobreposicao } from "@/lib/api-aprovacao";
 import type { ItemHistorico } from "@/lib/api-tarefa";
+import { pendentesDe } from "@/lib/api-subtarefas";
 import { useAcaoAprovacao } from "@/lib/queries-aprovacao";
 
 const ESTADO_PLANO = "Plano pronto para aprovação";
@@ -145,6 +146,60 @@ export function DialogoRejeicao({ tarefa, aberto, aoFechar }: Omit<DialogoProps,
   );
 }
 
+/** Forçar início: ato registrado que ignora a Dependência pendente; sempre confirmado, motivo opcional. */
+export function DialogoForcarInicio({ tarefa, aberto, aoFechar }: Omit<DialogoProps, "plano">) {
+  const mut = useAcaoAprovacao(tarefa.id);
+  const [motivo, setMotivo] = useState("");
+  const pendentes = pendentesDe(tarefa);
+
+  useEffect(() => {
+    if (!aberto) {
+      setMotivo("");
+      mut.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto]);
+
+  return (
+    <Dialog open={aberto} onOpenChange={(o) => !o && aoFechar()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Forçar início: {tarefa.title}</DialogTitle>
+          <DialogDescription>Esta Tarefa depende de Tarefas ainda pendentes. Forçar o início é registrado no histórico.</DialogDescription>
+        </DialogHeader>
+        <ul className="text-sm">
+          {pendentes.map((p) => (
+            <li key={p.id}>
+              <span className="font-medium">{p.title}</span> <span className="text-muted-foreground">({p.state})</span>
+            </li>
+          ))}
+        </ul>
+        <textarea
+          aria-label="Motivo"
+          placeholder="Motivo (opcional)"
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          rows={3}
+          className="w-full resize-none rounded-md border border-input bg-transparent p-2 text-sm dark:bg-input/30"
+        />
+        {mut.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {mut.error.message}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={aoFechar}>
+            Cancelar
+          </Button>
+          <Button disabled={mut.isPending} onClick={() => mut.mutate({ acao: "forcar-inicio", motivo: motivo.trim() }, { onSuccess: aoFechar })}>
+            Confirmar início forçado
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const emCampo = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable=true]");
 
 /**
@@ -152,12 +207,16 @@ const emCampo = (e: KeyboardEvent) => !!(e.target as HTMLElement | null)?.closes
  * (GLOSSARY) e a API continua sendo quem rejeita (403/409 aparecem no diálogo). Atalho "a" abre o diálogo.
  */
 export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemHistorico[] }) {
-  const [dialogo, setDialogo] = useState<"aprovar" | "rejeitar">();
+  const [dialogo, setDialogo] = useState<"aprovar" | "rejeitar" | "forcar">();
   const reabrir = useAcaoAprovacao(tarefa.id);
+  const autorizar = useAcaoAprovacao(tarefa.id);
   // Subtarefa proposta pelo agente nasce em "Novo": aprovar-subtarefa, sempre pelo diálogo.
   const subNovo = tarefa.state === "Novo" && !!tarefa.maeId;
   const pronto = tarefa.state === ESTADO_PLANO || subNovo;
   const rejeitado = tarefa.state === ESTADO_REJEITADO;
+  const novo = tarefa.state === "Novo";
+  // Como a UI antiga: Forçar início só em "Autorizada para explorar" com Dependência pendente.
+  const forcavel = tarefa.state === "Autorizada para explorar" && pendentesDe(tarefa).length > 0;
 
   useEffect(() => {
     if (!pronto) return;
@@ -171,12 +230,22 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
     return () => document.removeEventListener("keydown", aoTeclar);
   }, [pronto]);
 
-  if (!pronto && !rejeitado) return null;
+  if (!pronto && !rejeitado && !novo && !forcavel) return null;
   const fechar = () => setDialogo(undefined);
 
   return (
     <div className="flex flex-col gap-1 border-b p-3">
       <div className="flex items-center gap-2">
+        {novo && (
+          <Button size="sm" variant={subNovo ? "outline" : "default"} disabled={autorizar.isPending} onClick={() => autorizar.mutate({ acao: "autorizar" })}>
+            Autorizar
+          </Button>
+        )}
+        {forcavel && (
+          <Button size="sm" variant="outline" onClick={() => setDialogo("forcar")}>
+            Forçar início
+          </Button>
+        )}
         {pronto && (
           <>
             <Button size="sm" onClick={() => setDialogo("aprovar")} aria-keyshortcuts="A">
@@ -193,11 +262,17 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
           </Button>
         )}
       </div>
+      {autorizar.isError && (
+        <p role="alert" className="text-xs text-destructive">
+          {autorizar.error.message}
+        </p>
+      )}
       {reabrir.isError && (
         <p role="alert" className="text-xs text-destructive">
           {reabrir.error.message}
         </p>
       )}
+      <DialogoForcarInicio tarefa={tarefa} aberto={dialogo === "forcar"} aoFechar={fechar} />
       <DialogoAprovacao tarefa={tarefa} plano={planoDoHistorico(itens)} acao={subNovo ? "aprovar-subtarefa" : "aprovar"} aberto={dialogo === "aprovar"} aoFechar={fechar} />
       <DialogoRejeicao tarefa={tarefa} aberto={dialogo === "rejeitar"} aoFechar={fechar} />
     </div>
