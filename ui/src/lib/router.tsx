@@ -1,4 +1,5 @@
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
+import { AtualizacaoProvider, ResultadoAtualizacao, VersaoEAtualizar } from "@/components/atualizacao";
 import { CommandPalette } from "@/components/command-palette";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -26,16 +27,22 @@ const texto = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
 function Shell() {
   return (
+    <AtualizacaoProvider>
     <div className="flex h-screen flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-6">
         <h1 className="text-sm font-semibold">Agentic Task Manager</h1>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <VersaoEAtualizar />
+          <ThemeToggle />
+        </div>
       </header>
       <ConnectionBanner />
+      <ResultadoAtualizacao />
       <Outlet />
       <TokenDialog />
       <CommandPalette />
     </div>
+    </AtualizacaoProvider>
   );
 }
 
