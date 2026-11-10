@@ -26,7 +26,17 @@ export function criarApi({ apiUrl, token, fetch: f = fetch }: OpcoesApi) {
     return texto ? JSON.parse(texto) : null;
   }
   const seg = encodeURIComponent;
+  /** Anexo de texto (POST bruto com ?nome=); usado só pelo perfil assistente. */
+  async function enviarTexto(caminho: string, texto: string): Promise<unknown> {
+    const r = await f(base + caminho, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "text/plain" }, body: texto });
+    const t = await r.text();
+    if (!r.ok) throw new ErroApi(r.status, t);
+    return t ? JSON.parse(t) : null;
+  }
   return {
+    /** Chamada genérica à API (perfil assistente). */
+    chamar,
+    enviarTexto,
     contextoResolvido: (id: string) => chamar("GET", `/contextos/${seg(id)}/resolvido`),
     consolidado: (id: string) => chamar("GET", `/contextos/${seg(id)}/consolidado`),
     buscar: (q: string, contextoId?: string, subarvore?: boolean) => {

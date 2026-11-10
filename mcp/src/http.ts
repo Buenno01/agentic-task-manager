@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { criarApi } from "./api.ts";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { criarApi, type Api } from "./api.ts";
 import { criarServidorMcp } from "./servidor.ts";
 
 export interface McpHttp {
@@ -13,7 +14,7 @@ export interface McpHttp {
 const igual = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** Streamable HTTP sem sessão: cada requisição ganha seu servidor/transport. Exige o token do agente como bearer. */
-export function iniciarMcpHttp(opts: { apiUrl: string; token: string; port: number; host?: string; fetch?: typeof fetch }): Promise<McpHttp> {
+export function iniciarMcpHttp(opts: { apiUrl: string; token: string; port: number; host?: string; fetch?: typeof fetch; criarServidor?: (api: Api) => McpServer; /** Bearer exigido dos clientes MCP (padrão: o próprio token da API). */ bearer?: string }): Promise<McpHttp> {
   const api = criarApi({ apiUrl: opts.apiUrl, token: opts.token, fetch: opts.fetch });
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
@@ -22,7 +23,7 @@ export function iniciarMcpHttp(opts: { apiUrl: string; token: string; port: numb
       return;
     }
     const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
-    if (!bearer || !igual(bearer, opts.token)) {
+    if (!bearer || !igual(bearer, opts.bearer ?? opts.token)) {
       res.writeHead(401, { "content-type": "application/json", "www-authenticate": "Bearer" }).end('{"error":"Não autenticado"}');
       return;
     }
@@ -34,7 +35,7 @@ export function iniciarMcpHttp(opts: { apiUrl: string; token: string; port: numb
       res.writeHead(405, { allow: "POST", "content-type": "application/json" }).end('{"error":"Use POST"}');
       return;
     }
-    const mcp = criarServidorMcp(api);
+    const mcp = (opts.criarServidor ?? criarServidorMcp)(api);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => {
       void transport.close();
