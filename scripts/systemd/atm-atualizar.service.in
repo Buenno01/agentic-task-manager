@@ -1,0 +1,12 @@
+[Unit]
+Description=ATM: atualiza a produção para a maior tag (scripts/atualizar.sh)
+
+[Service]
+Type=oneshot
+# Remove o pedido antes de tudo: um pedido nunca dispara duas vezes.
+ExecStartPre=/bin/rm -f @RUN_DIR@/pedido-atualizacao
+ExecStart=@CLONE@/scripts/atualizar.sh
+WorkingDirectory=@CLONE@
+Environment=ATM_ESTADO_DIR=@RUN_DIR@
+# O PATH de serviços --user é mínimo; git e docker precisam ser encontrados.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
