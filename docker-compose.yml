@@ -46,7 +46,7 @@ services:
       - atm-logs:/data/logs
       - atm-workspaces:/data/workspaces
       - atm-repos:/data/repos
-      # ./run no host = ATM_ESTADO_DIR de scripts/atualizar.sh (padrão ~/atm-prod/run, o clone de produção).
+      # ./run no host = ATM_ESTADO_DIR de scripts/atualizar.sh (padrão <clone>/run, o clone de produção).
       # Precisa ser gravável pelo uid 1000 (usuário node do container). Docker cria o diretório se faltar.
       - ./run:/run/atm
     healthcheck:

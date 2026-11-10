@@ -2,7 +2,7 @@ import { api } from "@/lib/api";
 
 // Espelha daemon/src/api/atualizacao.ts (só humano). Só transporte: sem regra de negócio.
 export interface UltimaAtualizacao {
-  resultado: "sucesso" | "rollback" | "erro_rollback";
+  resultado: "sucesso" | "erro" | "rollback" | "erro_rollback";
   tag_de: string;
   tag_para: string;
   motivo: string;

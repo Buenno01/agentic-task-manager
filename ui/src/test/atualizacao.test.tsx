@@ -5,11 +5,11 @@ import { http, HttpResponse, server } from "./server";
 
 const ULTIMA = {
   resultado: "rollback", tag_de: "v0.2.0", tag_para: "v0.3.0", motivo: "healthcheck falhou após a troca",
-  em: "2026-11-10T12:00:00Z", versao_rodando: "0.2.0", backup: "/run/backup",
+  em: "2026-11-10T12:00:00Z", versao_rodando: "v0.2.0", backup: "/run/backup",
 };
 
 function api(estado: Record<string, unknown>) {
-  const reg = { pedidos: 0, estado: { versao: "0.2.0", configurada: true, estado: "disponivel", pedidoPendente: false, ultima: null, ...estado } as Record<string, unknown> };
+  const reg = { pedidos: 0, estado: { versao: "v0.2.0", configurada: true, estado: "disponivel", pedidoPendente: false, ultima: null, ...estado } as Record<string, unknown> };
   server.use(
     http.get("*/api/tarefas", () => HttpResponse.json([])),
     http.get("*/api/contextos/arvore", () => HttpResponse.json([])),
@@ -29,14 +29,14 @@ describe("versão e botão Atualizar", () => {
   it("mostra a versão em execução e o botão quando configurada", async () => {
     api({});
     render(<App />);
-    expect(await screen.findByText("v0.2.0")).toBeInTheDocument();
+    expect(await screen.findByText("v0.2.0", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Atualizar" })).toBeInTheDocument();
   });
 
   it("sem configuração: mostra a versão, sem botão e sem mensagem de erro", async () => {
     api({ configurada: false, estado: "indisponivel" });
     render(<App />);
-    expect(await screen.findByText("v0.2.0")).toBeInTheDocument();
+    expect(await screen.findByText("v0.2.0", { exact: true })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Atualizar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -92,10 +92,27 @@ describe("versão e botão Atualizar", () => {
   });
 
   it("mostra o resultado de sucesso da última atualização", async () => {
-    api({ ultima: { ...ULTIMA, resultado: "sucesso", motivo: "" }, versao: "0.3.0" });
+    api({ ultima: { ...ULTIMA, resultado: "sucesso", motivo: "" }, versao: "v0.3.0" });
     render(<App />);
     const res = await screen.findByRole("status", { name: "Última atualização" });
     expect(res).toHaveTextContent(/sucesso/i);
     expect(res).toHaveTextContent("v0.3.0");
+    expect(res).not.toHaveTextContent("vv");
+  });
+
+  it("não duplica o v das tags (v1.2.0, nunca vv1.2.0) na versão e no resultado", async () => {
+    api({ versao: "v1.2.0", ultima: { ...ULTIMA, resultado: "sucesso", motivo: "", tag_de: "v1.1.0", tag_para: "v1.2.0", versao_rodando: "v1.2.0" } });
+    const { container } = render(<App />);
+    expect(await screen.findByText("v1.2.0", { exact: true })).toBeInTheDocument();
+    await screen.findByRole("status", { name: "Última atualização" });
+    expect(container.textContent).not.toMatch(/vv\d/);
+  });
+
+  it("falha antes do up (resultado erro): mostra título de erro com o motivo", async () => {
+    api({ ultima: { ...ULTIMA, resultado: "erro", motivo: "falha ao copiar o banco para o backup", versao_rodando: "v0.2.0" } });
+    render(<App />);
+    const res = await screen.findByRole("status", { name: "Última atualização" });
+    expect(res).toHaveTextContent(/não realizada/i);
+    expect(res).toHaveTextContent("falha ao copiar o banco");
   });
 });

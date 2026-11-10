@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Resposta } from "./contextos.ts";
 
 /** Nomes no diretório `run` compartilhado com o host (ADR-0005: a API só sinaliza, nunca executa). */
-export const ARQUIVO_MARCADOR = "configurada"; // gravado pelo instalador do host (ticket 07)
+export const ARQUIVO_MARCADOR = "configurada"; // gravado pelo instalador do host 
 export const ARQUIVO_PEDIDO = "pedido-atualizacao"; // gravado só por esta API; a unit .path do host o consome
 export const ARQUIVO_ULTIMA = "ultima-atualizacao.json"; // gravado por scripts/atualizar.sh
 
@@ -13,8 +13,6 @@ export interface DepsAtualizacao {
   /** Tag em execução (ATM_VERSAO, exportada pelo script). */
   versao?: string;
 }
-
-const NEGADO: Resposta = { status: 403, corpo: { error: "Apenas o humano pode fazer isso" } };
 
 function lerUltima(runDir: string | undefined): unknown {
   if (!runDir) return null;
@@ -26,12 +24,12 @@ function lerUltima(runDir: string | undefined): unknown {
   }
 }
 
-/** GET /atualizacao e POST /atualizacao/pedido, ambos só do humano. Devolve undefined se a rota não for daqui. */
-export function rotaAtualizacao(d: DepsAtualizacao, metodo: string, path: string, humano: boolean): Resposta | undefined {
+/** GET /atualizacao e POST /atualizacao/pedido, ambos só do humano (`negado` = o 403 compartilhado do servidor). Devolve undefined se a rota não for daqui. */
+export function rotaAtualizacao(d: DepsAtualizacao, metodo: string, path: string, humano: boolean, negado: Resposta): Resposta | undefined {
   const consulta = path === "/atualizacao" && metodo === "GET";
   const pedido = path === "/atualizacao/pedido" && metodo === "POST";
   if (!consulta && !pedido) return undefined;
-  if (!humano) return NEGADO;
+  if (!humano) return negado;
 
   const configurada = !!d.runDir && existsSync(join(d.runDir, ARQUIVO_MARCADOR));
   const pendente = () => !!d.runDir && existsSync(join(d.runDir, ARQUIVO_PEDIDO));

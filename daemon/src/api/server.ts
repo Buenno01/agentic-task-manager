@@ -331,7 +331,7 @@ export function startDaemon(opts: OpcoesDaemon): Promise<Daemon> {
       const corpoJson = () => lerJson(req);
       if (path === "/auditoria" && metodo === "GET") return enviar(200, audit.listar());
       const respAtualizacao = rotaAtualizacao(
-        { runDir: opts.runDir ?? (process.env.ATM_RUN_DIR || undefined), versao: opts.versao ?? process.env.ATM_VERSAO }, metodo, path, humano,
+        { runDir: opts.runDir ?? (process.env.ATM_RUN_DIR || undefined), versao: opts.versao ?? process.env.ATM_VERSAO }, metodo, path, humano, { status: 403, corpo: NEGADO },
       );
       if (respAtualizacao) return enviar(respAtualizacao.status, respAtualizacao.corpo);
       const respColetas = rotaColetas(coletasDeps, metodo, path, humano, corpoJson, { status: 403, corpo: NEGADO });

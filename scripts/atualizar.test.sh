@@ -198,5 +198,49 @@ export FAKE_DOCKER_FALHA_SAUDE=1
 atualizar v1.2.0
 verificar "backup sem -wal: o -wal deixado pela versão nova é removido no restore" '[[ ! -e "$C/db/atm.db-wal" && "$(cat "$C/db/atm.db")" == "banco-v0-fechado" ]]'
 
+cenario "falha ANTES do up (backup): produção volta na versão anterior, estado erro, código ≠ 0"
+novo_cenario pre_up
+rm -f "$C/db/atm.db"   # a cópia do banco vai falhar depois do stop
+atualizar v1.2.0
+verificar "código 1" '[[ $COD -eq 1 ]]'
+verificar "daemon foi parado e depois religado" '[[ "$(grep -n "^compose stop daemon" "$C/docker.log" | head -n1 | cut -d: -f1)" -lt "$(grep -n "^compose up" "$C/docker.log" | cut -d: -f1)" ]]'
+verificar "religado em v1.0.0 com ATM_VERSAO=v1.0.0" 'grep -q "^compose up -d --build --wait | tag=v1.0.0 | versao=v1.0.0$" "$C/docker.log"'
+verificar "checkout continua em v1.0.0" '[[ "$(tag_prod)" == v1.0.0 ]]'
+verificar "mensagem diz a versão rodando" 'grep -q "Rodando: v1.0.0" <<<"$OUT"'
+verificar "estado: erro, versao_rodando v1.0.0, com motivo" '[[ "$(estado resultado)" == erro && "$(estado versao_rodando)" == v1.0.0 && "$(estado tag_para)" == v1.2.0 && -n "$(estado motivo)" ]]'
+
+cenario "falha ANTES do up e a religação também falha: código 3, erro_rollback"
+novo_cenario pre_up2
+rm -f "$C/db/atm.db"
+export FAKE_DOCKER_FALHA_SAUDE=1
+atualizar v1.2.0
+verificar "código 3" '[[ $COD -eq 3 ]]'
+verificar "estado erro_rollback, indeterminada" '[[ "$(estado resultado)" == erro_rollback && "$(estado versao_rodando)" == indeterminada ]]'
+
+cenario "execução concorrente: a segunda recusa sem parar nada"
+novo_cenario lock
+mkdir -p "$C/run"
+( flock -x 9; sleep 5 ) 9>"$C/run/.atualizar.lock" &
+SEGURA=$!
+sleep 0.5
+atualizar v1.2.0
+kill "$SEGURA" 2>/dev/null; wait "$SEGURA" 2>/dev/null
+verificar "código ≠ 0" '[[ $COD -ne 0 ]]'
+verificar "mensagem fala de outra atualização em andamento" 'grep -qi "em andamento" <<<"$OUT"'
+verificar "nada parado/subido e tag intacta" '[[ ! -s "$C/docker.log" && "$(tag_prod)" == v1.0.0 ]]'
+
+cenario "run dir é criado pelo script antes do up"
+novo_cenario rundir
+atualizar v1.2.0
+verificar "diretório run existe e é do usuário" '[[ -d "$C/run" && -O "$C/run" ]]'
+
+cenario "fetch sem --force: tag movida no origin não é sobrescrita em silêncio"
+novo_cenario tagmovida
+atualizar v1.2.0
+: > "$C/docker.log"
+( cd "$C/dev" && git commit -q --allow-empty -m outro && git tag -f v1.2.0 >/dev/null && git push -q --force origin v1.2.0 )
+atualizar v1.10.0
+verificar "código ≠ 0 e nada parado" '[[ $COD -ne 0 && ! -s "$C/docker.log" ]]'
+
 echo
 if [[ $FALHAS -eq 0 ]]; then echo "OK: $TOTAL verificações"; else echo "FALHOU: $FALHAS de $TOTAL"; exit 1; fi

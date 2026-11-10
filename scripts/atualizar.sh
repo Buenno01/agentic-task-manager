@@ -12,14 +12,19 @@
 #   ATM_DB_DIR      diretório com o atm.db a copiar. Sem ele, o banco é lido do contêiner parado
 #                   (`docker compose cp daemon:/data/db/atm.db`), ou seja, do volume atm-db.
 #   ATM_BACKUPS_MANTER  quantos backups manter (padrão: 5); a poda só roda depois de uma atualização bem-sucedida
-#   ATM_ESTADO_DIR  onde gravar ultima-atualizacao.json (padrão: ~/atm-prod/run)
+#   ATM_ESTADO_DIR  diretório run: ultima-atualizacao.json e o lock (padrão: <clone>/run, o mesmo do Compose e do
+#                   instalador). Criado aqui (chmod 775) antes do `up`, para o Docker não criá-lo como root.
 #
 # Rollback: se `up --wait` falhar, para o daemon, restaura o backup (inverso da cópia), volta o checkout para a
 # versão anterior e sobe de novo. Códigos de saída: 0 sucesso/no-op; 1 erro (inclui "rollback realizado");
 # 3 rollback FALHOU (backup preservado, estado indeterminado).
 #
-# Arquivo de estado ($ATM_ESTADO_DIR/ultima-atualizacao.json), gravado em sucesso, rollback e erro_rollback:
-#   {"resultado":"sucesso|rollback|erro_rollback","tag_de":"v1.0.0","tag_para":"v1.1.0","motivo":"...",
+# Falha DEPOIS de parar o daemon e ANTES do `up` (backup, checkout): o daemon é religado na versão anterior
+# (resultado "erro"; se a religação falhar, "erro_rollback", código 3). Nunca deixa a produção parada em silêncio.
+# Concorrência: flock em $ATM_ESTADO_DIR/.atualizar.lock; a segunda execução sai com código 1 sem parar nada.
+#
+# Arquivo de estado ($ATM_ESTADO_DIR/ultima-atualizacao.json), gravado em sucesso, erro, rollback e erro_rollback:
+#   {"resultado":"sucesso|erro|rollback|erro_rollback","tag_de":"v1.0.0","tag_para":"v1.1.0","motivo":"...",
 #    "em":"2026-01-01T12:00:00Z" (UTC, ISO 8601),"versao_rodando":"v1.0.0|v1.1.0|indeterminada","backup":"/caminho"}
 #
 # Backup e WAL: o banco usa journal_mode=WAL. Com o daemon parado de forma limpa (SIGTERM, a última conexão fecha)
@@ -31,7 +36,7 @@ set -euo pipefail
 BACKUPS_MANTER="${ATM_BACKUPS_MANTER:-5}"
 
 # Estado da atualização em curso, compartilhado entre as funções.
-TAG_DE=""; TAG_PARA=""; VERSAO_RODANDO=""; backup=""; backup_dir=""; atual_ref=""; atual_rev=""
+estado_dir=""; TAG_DE=""; TAG_PARA=""; VERSAO_RODANDO=""; backup=""; backup_dir=""; atual_ref=""; atual_rev=""
 
 erro() { echo "atualizar: $*" >&2; }
 
@@ -87,7 +92,7 @@ json_str() {
 
 # gravar_estado <resultado> <motivo>: escrita atômica; falhar ao gravar só avisa (não muda o desfecho).
 gravar_estado() {
-  local resultado="$1" motivo="$2" dir="${ATM_ESTADO_DIR:-$HOME/atm-prod/run}" tmp
+  local resultado="$1" motivo="$2" dir="$estado_dir" tmp
   if ! { mkdir -p "$dir" && tmp="$(mktemp "$dir/.estado.XXXXXX")"; } 2>/dev/null; then
     erro "aviso: não consegui gravar o arquivo de estado em $dir"; return 0
   fi
@@ -126,11 +131,42 @@ rollback() {
   return 1
 }
 
+# Falha entre `stop daemon` e `up`: religa a versão anterior (o banco não foi tocado; o checkout volta se mudou).
+falha_antes_do_up() {
+  local motivo="$1" falha=""
+  erro "$motivo; religando o daemon em $TAG_DE"
+  [[ -z "$backup" ]] || rm -f -- "$backup" "$backup-wal" "$backup-shm"
+  if [[ "$(git rev-parse HEAD)" != "$atual_rev" ]] && ! git checkout --quiet "$atual_rev"; then
+    falha="não consegui voltar o checkout para $TAG_DE"
+  else
+    export ATM_VERSAO="$atual_ref"
+    docker compose up -d --build --wait >&2 || falha="a versão anterior $TAG_DE não subiu saudável"
+  fi
+  if [[ -n "$falha" ]]; then
+    VERSAO_RODANDO="indeterminada"
+    gravar_estado erro_rollback "$motivo; religação falhou: $falha"
+    erro "FALHOU: $falha. Motivo original: $motivo. Produção possivelmente parada; intervenção manual necessária."
+    return 3
+  fi
+  VERSAO_RODANDO="$TAG_DE"
+  gravar_estado erro "$motivo"
+  erro "Atualização para $TAG_PARA NÃO realizada: $motivo. Rodando: $TAG_DE."
+  return 1
+}
+
 main() {
   local raiz alvo atual
   raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   cd "$raiz"
   backup_dir="${ATM_BACKUP_DIR:-$HOME/atm-backups}"
+  estado_dir="${ATM_ESTADO_DIR:-$raiz/run}"
+
+  # Diretório run criado aqui (dono = usuário do host) antes de qualquer `up`: se o Docker o criasse, seria root.
+  if [[ ! -d "$estado_dir" ]]; then
+    mkdir -p "$estado_dir" && chmod 775 "$estado_dir" || { erro "não consegui criar $estado_dir"; return 1; }
+  fi
+  exec 9>"$estado_dir/.atualizar.lock" || { erro "não consegui abrir o lock em $estado_dir"; return 1; }
+  flock -n 9 || { erro "outra atualização já está em andamento (lock $estado_dir/.atualizar.lock); nada foi alterado"; return 1; }
 
   git rev-parse --git-dir >/dev/null 2>&1 || { erro "$raiz não é um repositório git"; return 1; }
   git remote get-url origin >/dev/null 2>&1 || { erro "remote 'origin' não configurado em $raiz (este não parece ser o clone de produção)"; return 1; }
@@ -139,7 +175,7 @@ main() {
     return 1
   fi
 
-  git fetch --tags --force --quiet origin || { erro "falha ao buscar tags do origin"; return 1; }
+  git fetch --tags --quiet origin || { erro "falha ao buscar tags do origin"; return 1; }
 
   if [[ $# -ge 1 && -n "$1" ]]; then
     alvo="$1"
@@ -159,14 +195,14 @@ main() {
   TAG_DE="$atual_ref"; TAG_PARA="$alvo"
 
   echo "Atualizando $atual_ref -> $alvo"
-  docker compose stop daemon
+  docker compose stop daemon || { falha_antes_do_up "não consegui parar o daemon"; return $?; }
 
-  mkdir -p "$backup_dir"
+  mkdir -p "$backup_dir" || { falha_antes_do_up "não consegui criar o diretório de backups $backup_dir"; return $?; }
   backup="$backup_dir/atm-$(date +%Y%m%d-%H%M%S)-$atual_ref.db"
-  copiar_banco_para "$backup" || { erro "falha ao copiar o banco"; return 1; }
+  copiar_banco_para "$backup" || { falha_antes_do_up "falha ao copiar o banco para o backup"; return $?; }
   echo "Backup: $backup"
 
-  git checkout --quiet "$alvo"
+  git checkout --quiet "$alvo" || { falha_antes_do_up "não consegui fazer checkout de $alvo"; return $?; }
   export ATM_VERSAO="$alvo"
   local log_up status
   log_up="$(mktemp)"

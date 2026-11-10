@@ -54,10 +54,10 @@ Variáveis (todas opcionais):
 | --- | --- | --- |
 | `ATM_BACKUP_DIR` | `~/atm-backups` | onde ficam os backups `atm-<data>-<hora>-<tag anterior>.db` |
 | `ATM_BACKUPS_MANTER` | `5` | quantos backups manter (poda só após atualização bem-sucedida) |
-| `ATM_ESTADO_DIR` | `~/atm-prod/run` | onde gravar `ultima-atualizacao.json` |
+| `ATM_ESTADO_DIR` | `<clone>/run` | diretório run: `ultima-atualizacao.json` e o lock `.atualizar.lock`. O script o cria (`chmod 775`) antes do `up`, para o Docker não criá-lo como root; o daemon (uid 1000) precisa conseguir gravar nele |
 | `ATM_DB_DIR` | (vazio) | diretório com o `atm.db`, em vez de ler/escrever o volume `atm-db` via `docker compose cp`; usado nos testes |
 
-**Rollback automático:** se o `up --wait` falhar (algum healthcheck não fica saudável), o script para o daemon, restaura o backup, volta o checkout à tag anterior e sobe de novo. Códigos de saída: `0` sucesso ou no-op; `1` erro, incluindo "rollback realizado"; `3` o rollback também falhou (o backup é preservado e a mensagem diz onde; intervenção manual). `ultima-atualizacao.json` registra `resultado` (`sucesso`, `rollback` ou `erro_rollback`), `tag_de`, `tag_para`, `motivo`, `em` (UTC), `versao_rodando` e `backup`.
+**Rollback automático:** se o `up --wait` falhar (algum healthcheck não fica saudável), o script para o daemon, restaura o backup, volta o checkout à tag anterior e sobe de novo. Códigos de saída: `0` sucesso ou no-op; `1` erro, incluindo "rollback realizado" e "atualização não realizada" (falha após parar o daemon e antes do `up`, p.ex. no backup: o daemon é religado na versão anterior e o estado grava `erro`; se a religação falhar, sai com `3` e grava `erro_rollback`) e também a segunda de duas execuções simultâneas (lock `flock` em `.atualizar.lock`; não para nada); `3` o rollback também falhou (o backup é preservado e a mensagem diz onde; intervenção manual). `ultima-atualizacao.json` registra `resultado` (`sucesso`, `erro`, `rollback` ou `erro_rollback`), `tag_de`, `tag_para`, `motivo`, `em` (UTC), `versao_rodando` e `backup`.
 
 **Rodadas em andamento** são interrompidas pela parada do daemon. No boot ficam `interrompida` (não contam como falha) e uma nova Rodada retoma a partir do último Checkpoint (ADR-0004). Não há modo de drenagem: prefira atualizar sem Rodadas ativas.
 
@@ -178,7 +178,7 @@ Os portões de aprovação (`aprovar`, `aprovar-subtarefa`, `forcar-inicio`, `co
 
 - `GET /atualizacao` → `{ versao, configurada, estado: "disponivel"|"indisponivel", pedidoPendente, ultima }` (`versao` = `ATM_VERSAO`; `ultima` = conteúdo de `ultima-atualizacao.json` ou `null`).
 - `POST /atualizacao/pedido` → `202 { aceito: true, jaPendente }`; sem marcador do host → `409` e nada é gravado. Agente → `403` (nas duas rotas). Não há ferramenta MCP: agentes nunca atualizam a produção.
-- O daemon só grava `pedido-atualizacao` em `ATM_RUN_DIR` (Compose: `./run` no host → `/run/atm`; o mesmo diretório que `scripts/atualizar.sh` usa em `ATM_ESTADO_DIR`, padrão `~/atm-prod/run`). "Configurada" = existe `configurada` ali (gravado pelo instalador do host). Sem `ATM_RUN_DIR`/diretório, o sistema sobe normalmente e a atualização fica indisponível.
+- O daemon só grava `pedido-atualizacao` em `ATM_RUN_DIR` (Compose: `./run` no host → `/run/atm`; o mesmo diretório que `scripts/atualizar.sh` usa em `ATM_ESTADO_DIR`, padrão `<clone>/run`). "Configurada" = existe `configurada` ali (gravado pelo instalador do host). Sem `ATM_RUN_DIR`/diretório, o sistema sobe normalmente e a atualização fica indisponível.
 
 ## Segurança e limites
 

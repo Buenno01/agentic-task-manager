@@ -15,5 +15,5 @@ Complementa, sem substituir, o ADR-0001 (o portão de aprovação passa a cobrir
 
 - Rollback = backup, não migração reversa: as migrações do banco só andam para frente. O rollback não recupera dados criados depois da atualização (só ocorre nos primeiros segundos, na janela do `--wait`).
 - Rodadas em andamento são interrompidas pela parada do daemon; no próximo boot ficam `interrompida` (não contam como falha) e são retomadas por nova Rodada a partir do último Checkpoint (ADR-0004). Não há modo de drenagem.
-- Atualizar exige o terminal do host. Uma etapa 2 (planejada, ainda não implementada) pode adicionar um botão na UI que apenas grava um pedido num diretório compartilhado, disparado por uma unit `systemd --user` instalada pelo humano e rodando o mesmo script; mesmo assim o daemon não ganha `docker.sock`.
+- Atualizar pode ser feito no terminal do host ou pelo botão da UI (implementado, só humano): o botão apenas grava um pedido no diretório `run` compartilhado, disparado por uma unit `systemd --user` instalada pelo humano (`scripts/instalar-atualizacao.sh`) que roda o mesmo script; sem a unit instalada a UI esconde o botão. O daemon não ganha `docker.sock`.
 - O script recusa rodar sem `origin` ou com árvore suja, para nunca atuar no checkout de desenvolvimento por acidente nem subir código que não é de uma tag.

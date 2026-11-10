@@ -45,7 +45,7 @@ export function VersaoEAtualizar() {
 
   return (
     <div className="flex items-center gap-3">
-      {data.versao && <span className="font-mono text-xs text-muted-foreground">v{data.versao}</span>}
+      {data.versao && <span className="font-mono text-xs text-muted-foreground">{data.versao}</span>}
       {atualizando && (
         <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
           <LoaderIcon className="size-3 animate-spin" /> Atualizando… a página volta sozinha
@@ -95,6 +95,7 @@ export function VersaoEAtualizar() {
 
 const TITULO: Record<UltimaAtualizacao["resultado"], string> = {
   sucesso: "Atualização concluída com sucesso",
+  erro: "Atualização não realizada (a versão anterior continua rodando)",
   rollback: "Atualização revertida (rollback)",
   erro_rollback: "Erro na atualização e o rollback também falhou",
 };
@@ -112,7 +113,7 @@ export function ResultadoAtualizacao() {
       <AlertTitle>{TITULO[u.resultado]}</AlertTitle>
       <AlertDescription>
         <p>
-          {u.tag_de} → {u.tag_para} · rodando v{u.versao_rodando} · {new Date(u.em).toLocaleString("pt-BR")}
+          {u.tag_de} → {u.tag_para} · rodando {u.versao_rodando} · {new Date(u.em).toLocaleString("pt-BR")}
         </p>
         {u.motivo && <p>Motivo: {u.motivo}</p>}
       </AlertDescription>

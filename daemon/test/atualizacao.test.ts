@@ -32,7 +32,7 @@ const subir = async (extra: { runDir?: string | null; versao?: string } = {}) =>
 const chamar = (method: string, path: string, token: string | undefined = HUMANO) =>
   fetch(daemon!.url + path, { method, headers: token ? comToken(token) : {} });
 const configurar = () => {
-  // Fixture do host: o instalador (ticket 07) grava o marcador no mesmo diretório.
+  // Fixture do host: o instalador grava o marcador no mesmo diretório.
   rmSync(run, { recursive: true, force: true });
   mkdirSync(run, { recursive: true });
   writeFileSync(join(run, "configurada"), "");
