@@ -31,6 +31,8 @@ services:
       ATM_REPOS_DIR: /data/repos
       # Origens CORS permitidas (separadas por vírgula); vazio = UI local em :5173.
       ATM_CORS_ORIGIN: ${ATM_CORS_ORIGIN:-}
+      # Tag em execução: exportada por scripts/atualizar.sh; vazio fora do fluxo de atualização.
+      ATM_VERSAO: ${ATM_VERSAO:-}
     ports:
       - "127.0.0.1:${ATM_PORT:-3000}:3000"
     volumes:
