@@ -26,6 +26,9 @@ case "$*" in
   "compose up -d --build --wait")
     n="$(cat "$FAKE_DOCKER_ESTADO/ups" 2>/dev/null || echo 0)"; echo $((n + 1)) > "$FAKE_DOCKER_ESTADO/ups"
     if [[ -n "${FAKE_DOCKER_FALHA_SAUDE:-}" && "$n" -lt "${FAKE_DOCKER_FALHA_SAUDE}" ]]; then
+      # A versão doente já migrou o banco e deixou um -wal antes de falhar: o rollback precisa desfazer isso.
+      [[ -f "$ATM_DB_DIR/atm.db" ]] && printf -- '-migrado-por-%s' "${ATM_VERSAO:-?}" >> "$ATM_DB_DIR/atm.db"
+      [[ -f "$ATM_DB_DIR/atm.db" ]] && echo wal-novo > "$ATM_DB_DIR/atm.db-wal"
       echo "container daemon is unhealthy" >&2; exit 1
     fi
     ;;
@@ -59,7 +62,7 @@ novo_cenario() {
   : > "$C/docker.log"
   export PATH="$BASE/bin:$PATH_ORIG"
   export FAKE_DOCKER_LOG="$C/docker.log" FAKE_DOCKER_ESTADO="$C/estado"
-  export ATM_DB_DIR="$C/db" ATM_BACKUP_DIR="$C/backups"
+  export ATM_DB_DIR="$C/db" ATM_BACKUP_DIR="$C/backups" ATM_ESTADO_DIR="$C/run"
   unset FAKE_DOCKER_FALHA_SAUDE
 }
 PATH_ORIG="$PATH"
@@ -140,6 +143,60 @@ verificar "código 0" '[[ $COD -eq 0 ]]'
 verificar "restam 5" '[[ "$(backups | wc -l)" -eq 5 ]]'
 verificar "o mais antigo foi removido" '[[ ! -e "$C/backups/atm-20200101-120000-v0.9.0.db" ]]'
 verificar "o novo está entre os mantidos" 'backups | grep -q "v1.0.0.db$"'
+
+estado() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$C/run/ultima-atualizacao.json" "$1" 2>/dev/null; }
+
+cenario "sucesso grava o arquivo de estado"
+novo_cenario estado_ok
+atualizar v1.2.0
+verificar "resultado=sucesso, tag_de/tag_para" '[[ "$(estado resultado)" == sucesso && "$(estado tag_de)" == v1.0.0 && "$(estado tag_para)" == v1.2.0 ]]'
+verificar "hora ISO UTC" '[[ "$(estado em)" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]]'
+
+cenario "saúde falha na versão nova: rollback"
+novo_cenario rollback
+export FAKE_DOCKER_FALHA_SAUDE=1
+atualizar v1.2.0
+verificar "código ≠ 0 e ≠ do erro de rollback (3)" '[[ $COD -ne 0 && $COD -ne 3 ]]'
+verificar "banco voltou ao conteúdo do backup" '[[ "$(cat "$C/db/atm.db")" == "banco-v0-fechado" && "$(cat "$C/backups/$(backups | head -n1)")" == "banco-v0-fechado" ]]'
+verificar "checkout voltou para v1.0.0" '[[ "$(tag_prod)" == v1.0.0 ]]'
+verificar "subiu de novo com ATM_VERSAO=v1.0.0" 'grep -q "^compose up -d --build --wait | tag=v1.0.0 | versao=v1.0.0$" "$C/docker.log"'
+verificar "mensagem: rollback, motivo e versão rodando" 'grep -qi "rollback" <<<"$OUT" && grep -q "unhealthy" <<<"$OUT" && grep -q "Rodando: v1.0.0" <<<"$OUT"'
+verificar "estado: rollback v1.0.0 -> v1.2.0 com motivo" '[[ "$(estado resultado)" == rollback && "$(estado tag_de)" == v1.0.0 && "$(estado tag_para)" == v1.2.0 && "$(estado motivo)" == *unhealthy* && "$(estado versao_rodando)" == v1.0.0 ]]'
+
+cenario "rollback também falha: código 3, backup preservado"
+novo_cenario erro_rollback
+export FAKE_DOCKER_FALHA_SAUDE=2
+atualizar v1.2.0
+verificar "código 3" '[[ $COD -eq 3 ]]'
+verificar "mensagem nomeia o backup preservado e o estado" 'grep -q "PRESERVADO em $C/backups/atm-" <<<"$OUT" && grep -qi "ROLLBACK FALHOU" <<<"$OUT" && grep -q "Estado:" <<<"$OUT"'
+verificar "backup existe com o conteúdo original" '[[ "$(cat "$C/backups/$(backups | head -n1)")" == "banco-v0-fechado" ]]'
+verificar "estado: erro_rollback, versão indeterminada" '[[ "$(estado resultado)" == erro_rollback && "$(estado versao_rodando)" == indeterminada && "$(estado backup)" == "$C/backups/"* ]]'
+
+cenario "backups não são podados enquanto a atualização falha"
+novo_cenario sem_poda
+for d in 20200101 20200102 20200103 20200104 20200105; do echo "velho-$d" > "$C/backups/atm-$d-120000-v0.9.0.db"; done
+export FAKE_DOCKER_FALHA_SAUDE=1
+atualizar v1.2.0
+verificar "rollback ocorreu" '[[ $COD -eq 1 ]]'
+verificar "os 5 antigos + o novo (6) continuam" '[[ "$(backups | wc -l)" -eq 6 ]]'
+export FAKE_DOCKER_FALHA_SAUDE=2
+novo_cenario sem_poda2
+for d in 20200101 20200102 20200103 20200104 20200105; do echo "velho-$d" > "$C/backups/atm-$d-120000-v0.9.0.db"; done
+export FAKE_DOCKER_FALHA_SAUDE=2
+atualizar v1.2.0
+verificar "nem no erro de rollback" '[[ "$(backups | wc -l)" -eq 6 ]]'
+
+cenario "backup leva -wal/-shm quando o daemon não os limpou, e o restore os desfaz"
+novo_cenario wal
+echo wal-v0 > "$C/db/atm.db-wal"
+export FAKE_DOCKER_FALHA_SAUDE=1
+atualizar v1.2.0
+verificar "backup do -wal existe" '[[ "$(cat "$C/backups/$(backups | grep "db$" | head -n1)-wal")" == wal-v0 ]]'
+verificar "-wal restaurado" '[[ "$(cat "$C/db/atm.db-wal")" == wal-v0 ]]'
+novo_cenario sem_wal
+export FAKE_DOCKER_FALHA_SAUDE=1
+atualizar v1.2.0
+verificar "backup sem -wal: o -wal deixado pela versão nova é removido no restore" '[[ ! -e "$C/db/atm.db-wal" && "$(cat "$C/db/atm.db")" == "banco-v0-fechado" ]]'
 
 echo
 if [[ $FALHAS -eq 0 ]]; then echo "OK: $TOTAL verificações"; else echo "FALHOU: $FALHAS de $TOTAL"; exit 1; fi
