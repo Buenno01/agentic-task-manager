@@ -5,7 +5,7 @@ Ver `GLOSSARY.md`, `docs/adr/` e `.scratch/nucleo/spec.md`.
 ## Estrutura
 
 - `daemon/` — daemon TypeScript/Node + SQLite + API HTTP (ADR-0005, ADR-0007). Módulos: `src/api` (HTTP), `src/db` (SQLite), `src/domain` (regras).
-- `ui/` — SPA (React, TypeScript, Vite, Tailwind, shadcn/ui; ADR-0010), projeto independente; fala só com a API. Dev: `cd ui && npm ci && npm run dev` (proxy `/api` → daemon, sem CORS); testes: `npm test`; E2E do fluxo de Aprovação: `npm run e2e` (sobe daemon real com banco temporário e tokens descartáveis + build da UI em portas 4391/4392, semeia pela API; requer o Chromium do Playwright, ou `E2E_CHROMIUM_PATH=<chromium>` para usar um já instalado; fonte em `ui/e2e/`); produção: Docker serve o build em :5173. A UI antiga está em `ui/legacy/` até o ticket 10.
+- `ui/` — SPA (React, TypeScript, Vite, Tailwind, shadcn/ui; ADR-0010), projeto independente; fala só com a API. Dev: `cd ui && npm ci && npm run dev` (proxy `/api` → daemon, sem CORS); testes: `npm test`; E2E do fluxo de Aprovação: `npm run e2e` (sobe daemon real com banco temporário e tokens descartáveis + build da UI em portas 4391/4392, semeia pela API; requer o Chromium do Playwright, ou `E2E_CHROMIUM_PATH=<chromium>` para usar um já instalado; fonte em `ui/e2e/`); produção: Docker serve o build em :5173. Ainda não estão na nova UI: editar a Área prevista e as ações da fase Execução (converter, iniciar, aguardar, retomar, validar, concluir); use a API para isso.
 
 ## Rodar
 
@@ -14,7 +14,7 @@ Requer Node >= 24 (usa `node:sqlite` e execução de TypeScript nativa).
 ```sh
 cd daemon && npm install
 npm start          # API em http://127.0.0.1:3000 (ATM_PORT, ATM_DB_PATH=./data/atm.db)
-cd ui && npm start # UI em http://127.0.0.1:5173 (?api=<url> para outra API)
+cd ui && npm ci && npm run dev    # UI em dev (Vite, proxy /api → daemon); `npm run build && npm start` serve o build em http://127.0.0.1:5173 (ATM_API_URL aponta a API)
 ```
 
 ## Docker Compose
@@ -39,6 +39,8 @@ API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`,
 
 ```sh
 cd daemon && npm test && npm run typecheck
+cd ui && npm test && npm run typecheck && npm run build
+cd ui && npm run e2e   # E2E com Playwright; E2E_CHROMIUM_PATH=<chromium> usa um Chromium já instalado
 ```
 
 Os testes sobem o daemon real com um SQLite temporário e exercitam só a API HTTP.

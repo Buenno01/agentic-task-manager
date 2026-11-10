@@ -44,7 +44,7 @@ Monitoramento
 - RF24 [DEC] Falha de Coleta só registra erro e Lacuna, exceto causas que exigem ação humana (ex.: credencial expirada): uma Tarefa "Novo" por causa.
 
 Interfaces
-- RF25 [DEC] API HTTP local como fonte única de verdade, com operações longas assíncronas; MCP para agentes sem ferramentas de aprovação; UI mínima como projeto independente (ADR-0005).
+- RF25 [DEC] API HTTP local como fonte única de verdade, com operações longas assíncronas; MCP para agentes sem ferramentas de aprovação; UI como projeto independente (ADR-0005).
 
 ## 3. Requisitos não funcionais
 
@@ -54,7 +54,7 @@ Interfaces
 - Rastreabilidade: por Rodada, comandos, arquivos alterados, testes, erros, modelo e provedor, skills e ferramentas, decisões, fontes, aprovações e tokens. Eventos no SQLite, saídas grandes em disco. Sem expurgo no MVP.
 - Extensibilidade: runtime atrás do Executor; novas fontes como novos Coletores; interface mínima para evitar generalização precoce.
 - Operação: daemon único com módulos de fronteira clara; agentes como processos filhos restritos.
-- Implantação [REQ]: `docker compose up` sobe o sistema inteiro orquestrado (API/daemon, UI mínima, MCP e dependências), com volumes persistentes para banco, anexos, logs e Workspaces, e configuração por variáveis de ambiente. Também deve ser possível rodar fora do Docker em desenvolvimento [SUG].
+- Implantação [REQ]: `docker compose up` sobe o sistema inteiro orquestrado (API/daemon, UI, MCP e dependências), com volumes persistentes para banco, anexos, logs e Workspaces, e configuração por variáveis de ambiente. Também deve ser possível rodar fora do Docker em desenvolvimento [SUG].
 - Desempenho: sem metas rígidas; escala pequena (seção 1).
 
 ## 4. Entidades e relacionamentos
@@ -98,7 +98,7 @@ Monitoramento: Coleta → Snapshot → comparação com histórico → Anomalia 
 ## 9. Restrições e limites
 
 Fora do MVP: dashboard de monitoramento e operacional, CLI, notificações automáticas, webhooks ou scripts como origem de Tarefas, quotas de tokens, backup, multiusuário, contêiner por Tarefa, embeddings, chat interativo.
-Dentro, por decisão posterior: UI mínima separada (ADR-0005).
+Dentro, por decisão posterior: UI separada (ADR-0005).
 
 ## 10. Riscos e questões abertas
 
@@ -124,7 +124,7 @@ Opção A: daemon único em TypeScript/Node com SQLite (FTS para busca) e módul
 
 ## 13. Estratégia de evolução
 
-1. Núcleo: Tarefas, filas, Aprovação, comentários, Contextos, anexos, API, MCP e UI mínima, com agentes operados manualmente.
+1. Núcleo: Tarefas, filas, Aprovação, comentários, Contextos, anexos, API, MCP e UI, com agentes operados manualmente.
 2. Execução completa: orquestrador, Executor Hermes, Workspaces, Rodadas, Checkpoints, PR, rastreabilidade e Contexto consolidado.
 3. Monitoramento Shopify: Coletores, Snapshots, Revisões, Lacunas, Anomalias e geração de Tarefas.
 Depois do MVP, por demanda: contêiner por Tarefa, embeddings, dashboards, notificações, webhooks e outros runtimes.
