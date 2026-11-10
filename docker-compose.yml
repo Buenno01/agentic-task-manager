@@ -1,3 +1,5 @@
+# O nome do projeto e os volumes abaixo NÃO devem mudar: scripts/atualizar.sh (ADR-0011) atualiza a produção
+# reaproveitando-os, e o backup/rollback do banco lê/escreve o volume atm-db. O daemon não monta docker.sock.
 name: agentic-task-manager
 
 services:
@@ -115,6 +117,7 @@ services:
       timeout: 3s
       retries: 10
 
+# atm-db é copiado por scripts/atualizar.sh antes de cada atualização (ADR-0011); os demais não entram no backup.
 volumes:
   atm-db:
   atm-attachments:

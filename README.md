@@ -27,6 +27,46 @@ docker compose down                   # para (os dados ficam)
 
 Dados em volumes nomeados: `atm-db` (SQLite, `/data/db`), `atm-attachments` (anexos, `ATM_ATTACHMENTS_DIR=/data/attachments`) e `atm-logs` (**reservado** para os logs das Rodadas da fase 2; o daemon hoje só escreve no stdout e não grava nada ali). Sobrevivem a `down`/`up`; `docker compose down -v` os apaga. Portas só em `127.0.0.1`. `ATM_HUMAN_TOKEN` é obrigatório (o compose recusa subir sem ele); `ATM_AGENT_TOKENS` (`id:token,...`) é opcional. Todas as rotas exigem `Authorization: Bearer <token>`, exceto `GET /health` (healthcheck, sem token). Na UI, informe o token no formulário "Salvar token": ele fica no `localStorage` do navegador e é enviado como `Authorization: Bearer` em cada requisição (nunca é embutido no código). Healthcheck da API em `GET /health`; a UI só sobe com a API saudável. Configuração por variáveis (`.env`, ver `.env.example`); nunca commite segredos.
 
+## Atualização da produção (por tag)
+
+Decisão em `docs/adr/0011-*.md`. Três ambientes separados:
+
+- **Desenvolvimento (sem Docker):** em outro checkout, como em "Rodar" acima, com banco descartável e portas que não colidem com a produção, por exemplo `ATM_PORT=3010 ATM_DB_PATH=/tmp/atm-dev.db npm start` em `daemon/`. Testes (`npm test`) já usam SQLite temporário. Nunca use o `.env` nem o volume da produção.
+- **Produção:** um clone separado (sugestão `~/atm-prod`) do repositório do GitHub, com o próprio `.env` (tokens só ali; `.env` não é versionado). Mantém `name: agentic-task-manager` no Compose, então reaproveita os volumes `atm-*` existentes. Rodadas que alteram o ATM trabalham em Workspaces do volume `atm-workspaces`, nunca neste clone.
+- **GitHub:** agentes só empurram branches. Quem faz merge no `main` e cria a tag é o humano; a produção só muda quando uma tag nova é atualizada.
+
+Fluxo: dev → branch → PR/merge no `main` → tag → atualizar.
+
+```sh
+# no checkout de desenvolvimento, depois do merge
+git tag v1.2.0 && git push origin v1.2.0
+# no clone de produção
+cd ~/atm-prod
+scripts/atualizar.sh            # leva à maior tag vX.Y.Z do origin
+scripts/atualizar.sh v1.1.0     # ou a uma tag escolhida (serve para voltar de versão)
+```
+
+O script: `fetch --tags`; resolve a tag; se a produção já está nela, informa e sai com 0; para o `daemon`; copia o `atm.db` (e `-wal`/`-shm`, se existirem) para o diretório de backups; faz checkout da tag; roda `docker compose up -d --build --wait` com `ATM_VERSAO=<tag>` (repassada ao daemon pelo Compose). Só depois do sucesso poda os backups e grava o estado. Recusa rodar sem remote `origin`, com alterações não commitadas, ou com tag inexistente (nada é alterado). Opera sempre no clone onde está o script.
+
+Variáveis (todas opcionais):
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `ATM_BACKUP_DIR` | `~/atm-backups` | onde ficam os backups `atm-<data>-<hora>-<tag anterior>.db` |
+| `ATM_BACKUPS_MANTER` | `5` | quantos backups manter (poda só após atualização bem-sucedida) |
+| `ATM_ESTADO_DIR` | `~/atm-prod/run` | onde gravar `ultima-atualizacao.json` |
+| `ATM_DB_DIR` | (vazio) | diretório com o `atm.db`, em vez de ler/escrever o volume `atm-db` via `docker compose cp`; usado nos testes |
+
+**Rollback automático:** se o `up --wait` falhar (algum healthcheck não fica saudável), o script para o daemon, restaura o backup, volta o checkout à tag anterior e sobe de novo. Códigos de saída: `0` sucesso ou no-op; `1` erro, incluindo "rollback realizado"; `3` o rollback também falhou (o backup é preservado e a mensagem diz onde; intervenção manual). `ultima-atualizacao.json` registra `resultado` (`sucesso`, `rollback` ou `erro_rollback`), `tag_de`, `tag_para`, `motivo`, `em` (UTC), `versao_rodando` e `backup`.
+
+**Rodadas em andamento** são interrompidas pela parada do daemon. No boot ficam `interrompida` (não contam como falha) e uma nova Rodada retoma a partir do último Checkpoint (ADR-0004). Não há modo de drenagem: prefira atualizar sem Rodadas ativas.
+
+**O que o rollback não recupera:** dados criados depois da atualização (o banco volta ao instante do backup) e mudanças em volumes além do `atm.db`. Migrações só andam para frente; o backup é o único caminho de volta. Anexos, logs, repositórios e Workspaces não são copiados pelo script.
+
+Teste do script (sem Docker real, rede nem alteração do repositório): `bash scripts/atualizar.test.sh`.
+
+*Etapa 2 (planejada, não implementada):* botão "Atualizar" na UI, só para o humano, que grava um pedido consumido por uma unit `systemd --user` e roda este mesmo script. Hoje a atualização é só pelo terminal.
+
 ## Contextos (RF10)
 
 API: `POST/GET /contextos`, `GET /contextos/arvore`, `GET|PATCH /contextos/:id`, `GET /contextos/:id/resolvido` (herança resolvida), `GET /contextos/:id/tarefas[?subarvore=1]`, `PUT /tarefas/:id/contexto`; `POST /tarefas` aceita `contextId`. **Só o humano** cria/edita Contextos (`POST /contextos`, `PATCH /contextos/:id`) e reatribui Tarefa a Contexto (`PUT /tarefas/:id/contexto`): agente recebe 403 (os `GET` ficam abertos a agentes). Config estruturada (`repository`, `testCommands`, `concurrencyLimit`): filho sobrescreve, `null` herda. `instructions`: somam do geral ao específico (último vence).
