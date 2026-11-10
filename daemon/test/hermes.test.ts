@@ -128,3 +128,10 @@ test("argumentosHermes: --yolo por padrão e opcional", () => {
 });
 
 test.after(() => rmSync(join(REGISTRO, ".."), { recursive: true, force: true }));
+
+test("o token OAuth da assinatura Claude (CLAUDE_CODE_OAUTH_TOKEN) chega ao filho; o do humano não", () => {
+  const { e } = entrada("MODO:ok");
+  const env = ambienteDoFilho(e, { env: { PATH: "/bin", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-x", ATM_HUMAN_TOKEN: "h" } });
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "sk-ant-oat01-x");
+  assert.equal(env.ATM_HUMAN_TOKEN, undefined);
+});

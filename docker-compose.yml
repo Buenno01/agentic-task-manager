@@ -27,6 +27,8 @@ services:
       ATM_HERMES_MAX_TURNS: ${ATM_HERMES_MAX_TURNS:-}
       ATM_HERMES_RUN_BUDGET: ${ATM_HERMES_RUN_BUDGET:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Assinatura Claude (Pro/Max): token de `claude setup-token` (sk-ant-oat01-…); o Hermes o trata como OAuth, não como chave de API.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # Clones dos repositórios dos Contextos (volume atm-repos); os Workspaces são worktrees deles.
