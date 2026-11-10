@@ -71,7 +71,7 @@ export function CommandPalette() {
       id: "inbox",
       rotulo: "Ir para a inbox",
       icone: <InboxIcon />,
-      rodar: () => void navigate({ to: "/", search: (p) => ({ ...p, estado: ESTADO_AGUARDANDO, tarefa: undefined }) }),
+      rodar: () => void navigate({ to: "/", search: (p) => ({ ...p, contexto: undefined, prioridade: undefined, subcontextos: undefined, estado: ESTADO_AGUARDANDO, tarefa: undefined }) }),
     },
     { id: "tema", rotulo: "Alternar tema", icone: <MoonIcon />, rodar: alternar },
   ].filter((a) => a.rotulo.toLowerCase().includes(texto.trim().toLowerCase()));

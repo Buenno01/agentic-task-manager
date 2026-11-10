@@ -112,9 +112,11 @@ export function ListaTarefas({ arvore }: { arvore: ContextoNo[] }) {
   const navigate = useNavigate();
   const [criando, setCriando] = useState(false);
   const { data, isPending } = useTarefas(contexto, subcontextos !== false);
+  // Inbox (contador e título da aba) é global: todas as Tarefas, independentemente do Contexto e dos filtros.
+  const globais = useTarefas();
 
   const todas = data ?? [];
-  const aguardando = contarAguardando(todas);
+  const aguardando = contarAguardando(globais.data ?? []);
   const visiveis = todas.filter((t) => (!estado || t.state === estado) && (!prioridade || nivelDe(t) === prioridade));
   // Subtarefa aparece sob a mãe quando a mãe também está visível; senão vai ao topo (filtros não a escondem).
   const idsVisiveis = new Set(visiveis.map((t) => t.id));

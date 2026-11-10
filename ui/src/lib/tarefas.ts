@@ -34,6 +34,34 @@ export const ESTADOS = [
 ] as const;
 
 export const ESTADO_AGUARDANDO = "Aguardando humano";
+export const ESTADO_NOVO = "Novo";
+export const ESTADO_PLANO = "Plano pronto para aprovação";
+export const ESTADO_REJEITADO = "Rejeitado";
+export const ESTADO_AUTORIZADA = "Autorizada para explorar";
+
+export interface AcoesPermitidas {
+  autorizar: boolean;
+  aprovar: boolean;
+  rejeitar: boolean;
+  reabrir: boolean;
+  forcarInicio: boolean;
+}
+
+/**
+ * Ações de Aprovação derivadas do estado (GLOSSARY); a API não expõe as permitidas e segue sendo quem rejeita.
+ * Subtarefa proposta pelo agente nasce em "Novo" e pode ser aprovada/rejeitada ali (aprovar-subtarefa).
+ * Forçar início: só em "Autorizada para explorar" com Dependência pendente.
+ */
+export function acoesPermitidas(t: { state: string; subtarefa?: boolean; pendentes?: number }): AcoesPermitidas {
+  const aprovavel = t.state === ESTADO_PLANO || (t.state === ESTADO_NOVO && !!t.subtarefa);
+  return {
+    autorizar: t.state === ESTADO_NOVO,
+    aprovar: aprovavel,
+    rejeitar: aprovavel,
+    reabrir: t.state === ESTADO_REJEITADO,
+    forcarInicio: t.state === ESTADO_AUTORIZADA && (t.pendentes ?? 0) > 0,
+  };
+}
 
 interface Aparencia {
   icone: LucideIcon;

@@ -42,7 +42,8 @@ export function Workspace() {
         <aside aria-label="Barra lateral" className="w-64 shrink-0 border-r p-3">{sidebar()}</aside>
       ) : (
         <Sheet open={drawer} onOpenChange={setDrawer}>
-          <SheetContent>
+          {/* Radix trata o Esc do drawer (e o marca como tratado); aqui o Esc também fecha o painel de detalhe. */}
+          <SheetContent onEscapeKeyDown={() => void navigate({ to: "/", search: (prev) => ({ ...prev, tarefa: undefined }) })}>
             <SheetTitle>Contextos</SheetTitle>
             <SheetDescription className="sr-only">Escolha um Contexto para filtrar as Tarefas</SheetDescription>
             {sidebar(() => setDrawer(false))}

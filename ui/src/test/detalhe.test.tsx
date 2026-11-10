@@ -106,6 +106,21 @@ describe("detalhe da Tarefa", () => {
     expect(screen.getByLabelText("Estado")).toHaveValue("Aguardando humano");
   });
 
+  it("Esc fecha o painel mesmo com o drawer de Contextos aberto (tela estreita)", async () => {
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    try {
+      api();
+      render(<App initialPath="/?tarefa=t1" />);
+      await within(await painel()).findByRole("heading", { name: "Revisar catálogo" });
+      await userEvent.click(screen.getByRole("button", { name: /contextos/i }));
+      await screen.findByRole("dialog", { name: "Contextos" });
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Detalhe da Tarefa" })).not.toBeInTheDocument());
+    } finally {
+      Reflect.deleteProperty(window, "matchMedia");
+    }
+  });
+
   it("Esc dentro do campo de texto não fecha o painel", async () => {
     api();
     render(<App initialPath="/?tarefa=t1" />);

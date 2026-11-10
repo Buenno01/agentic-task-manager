@@ -107,6 +107,19 @@ describe("command palette", () => {
     expect(screen.getByText("Escolher gateway")).toBeInTheDocument();
   });
 
+  it("ações: ir para a inbox limpa Contexto, Prioridade e sub-Contextos", async () => {
+    api();
+    render(<App initialPath="/?contexto=c2&prioridade=alta&subcontextos=false" />);
+    await screen.findByLabelText("Estado");
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const p = await screen.findByRole("dialog", { name: /palette/i });
+    await userEvent.click(within(p).getByText("Ir para a inbox"));
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Aguardando humano"));
+    expect(screen.getByLabelText("Prioridade")).toHaveValue("");
+    expect(screen.queryByRole("checkbox", { name: "Incluir sub-Contextos" })).not.toBeInTheDocument();
+    expect(screen.getByText("Escolher gateway")).toBeInTheDocument();
+  });
+
   it("ações: alternar tema e criar Tarefa", async () => {
     const { posts } = api();
     render(<App initialPath="/" />);

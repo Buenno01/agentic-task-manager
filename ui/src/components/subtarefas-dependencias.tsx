@@ -9,7 +9,7 @@ import { useAcaoAprovacao } from "@/lib/queries-aprovacao";
 import { useAdicionarDependencia, useAjustarSubtarefa, useRemoverDependencia } from "@/lib/queries-subtarefas";
 import { useTarefas } from "@/lib/queries";
 import { useHistorico, useTarefa } from "@/lib/queries-tarefa";
-import { aparenciaEstado } from "@/lib/tarefas";
+import { acoesPermitidas, aparenciaEstado } from "@/lib/tarefas";
 import { cn } from "@/lib/utils";
 
 const campoCls = "w-full rounded-md border border-input bg-transparent p-2 text-sm dark:bg-input/30";
@@ -78,10 +78,7 @@ function ItemSubtarefa({ resumo, aoAbrir }: { resumo: ResumoSubtarefa; aoAbrir: 
   const tarefa: Tarefa =
     completa.data ?? { id: resumo.id, title: resumo.title, state: resumo.state, description: "", phase: "Exploração", createdAt: "" };
   const fechar = () => setDialogo(undefined);
-  const novo = resumo.state === "Novo";
-  const aprovavel = novo || resumo.state === "Plano pronto para aprovação";
-  const rejeitavel = aprovavel;
-  const rejeitada = resumo.state === "Rejeitado";
+  const { autorizar: novo, aprovar: aprovavel, rejeitar: rejeitavel, reabrir: rejeitada } = acoesPermitidas({ state: resumo.state, subtarefa: true });
 
   return (
     <li className="rounded-md border p-2 text-sm">

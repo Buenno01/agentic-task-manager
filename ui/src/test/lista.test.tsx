@@ -143,6 +143,16 @@ describe("inbox Aguardando humano", () => {
     expect(screen.getByLabelText("Estado")).toHaveValue("Aguardando humano");
   });
 
+  it("o contador e o título da aba são globais, não seguem o Contexto selecionado", async () => {
+    api();
+    render(<App initialPath="/?contexto=c2" />);
+    // Lista do Contexto tem só t1 e t2 (1 aguardando); o global tem 2.
+    await screen.findByText("Revisar catálogo");
+    const inbox = screen.getByRole("button", { name: /Aguardando humano/ });
+    await waitFor(() => expect(within(inbox).getByText("2")).toBeInTheDocument());
+    await waitFor(() => expect(document.title).toBe("(2) Agentic Task Manager"));
+  });
+
   it("sem Tarefas aguardando, o título fica sem contador", async () => {
     api([tarefa("t1", "Revisar catálogo", "Novo")]);
     render(<App initialPath="/" />);

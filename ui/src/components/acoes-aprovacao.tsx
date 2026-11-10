@@ -5,10 +5,8 @@ import type { Tarefa } from "@/lib/api";
 import type { AcaoAprovacao, AvisoSobreposicao } from "@/lib/api-aprovacao";
 import type { ItemHistorico } from "@/lib/api-tarefa";
 import { pendentesDe } from "@/lib/api-subtarefas";
+import { acoesPermitidas, ESTADO_NOVO } from "@/lib/tarefas";
 import { useAcaoAprovacao } from "@/lib/queries-aprovacao";
-
-const ESTADO_PLANO = "Plano pronto para aprovação";
-const ESTADO_REJEITADO = "Rejeitado";
 
 /** O plano vigente é o último comentário tipado "plano" do histórico. */
 export const planoDoHistorico = (itens: ItemHistorico[]): string | undefined =>
@@ -211,15 +209,15 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
   const reabrir = useAcaoAprovacao(tarefa.id);
   const autorizar = useAcaoAprovacao(tarefa.id);
   // Subtarefa proposta pelo agente nasce em "Novo": aprovar-subtarefa, sempre pelo diálogo.
-  const subNovo = tarefa.state === "Novo" && !!tarefa.maeId;
-  const pronto = tarefa.state === ESTADO_PLANO || subNovo;
-  const rejeitado = tarefa.state === ESTADO_REJEITADO;
-  const novo = tarefa.state === "Novo";
-  // Como a UI antiga: Forçar início só em "Autorizada para explorar" com Dependência pendente.
-  const forcavel = tarefa.state === "Autorizada para explorar" && pendentesDe(tarefa).length > 0;
+  const subNovo = tarefa.state === ESTADO_NOVO && !!tarefa.maeId;
+  const { autorizar: novo, aprovar: aprovavel, forcarInicio: forcavel, reabrir: rejeitado } = acoesPermitidas({
+    state: tarefa.state,
+    subtarefa: !!tarefa.maeId,
+    pendentes: pendentesDe(tarefa).length,
+  });
 
   useEffect(() => {
-    if (!pronto) return;
+    if (!aprovavel) return;
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== "a" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || emCampo(e)) return;
       if (document.querySelector("[role=dialog]")) return;
@@ -228,9 +226,9 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
     };
     document.addEventListener("keydown", aoTeclar);
     return () => document.removeEventListener("keydown", aoTeclar);
-  }, [pronto]);
+  }, [aprovavel]);
 
-  if (!pronto && !rejeitado && !novo && !forcavel) return null;
+  if (!aprovavel && !rejeitado && !novo && !forcavel) return null;
   const fechar = () => setDialogo(undefined);
 
   return (
@@ -246,7 +244,7 @@ export function AcoesAprovacao({ tarefa, itens }: { tarefa: Tarefa; itens: ItemH
             Forçar início
           </Button>
         )}
-        {pronto && (
+        {aprovavel && (
           <>
             <Button size="sm" onClick={() => setDialogo("aprovar")} aria-keyshortcuts="A">
               Aprovar
