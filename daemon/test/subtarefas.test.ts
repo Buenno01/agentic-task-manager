@@ -72,7 +72,7 @@ test("humano edita Subtarefa; agente não", async () => {
   const m = await obter(mae);
   assert.equal(m.subtarefas[0].title, "Novo título");
   assert.equal((await eventos(s)).at(-1)!.tipo, "editar");
-  assert.equal((await req("PATCH", `/tarefas/${mae}`, HUMANO, { title: "x" })).status, 409); // só Subtarefas
+  assert.equal((await req("PATCH", `/tarefas/${mae}`, HUMANO, { title: "x" })).status, 200); // Tarefa comum também é editável pelo humano
 });
 
 test("aprovar/rejeitar individualmente é só do humano; mãe resolve quando todas decididas", async () => {

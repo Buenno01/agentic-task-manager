@@ -62,12 +62,11 @@ export function abrirModuloSubtarefas(dbPath: string, repo: Repositorio) {
         registrar(mae, autor, "mae-resolvida", "Todas as Subtarefas foram aprovadas ou rejeitadas");
     },
 
-    /** PATCH /tarefas/:id — o humano edita uma Subtarefa. */
+    /** PATCH /tarefas/:id — o humano edita título e descrição de uma Tarefa ou Subtarefa. */
     async editar(id: string, autor: Autor, corpo: () => Promise<Record<string, unknown>>): Promise<Resposta> {
       if (!apenasHumano(autor)) return { status: 403, corpo: { error: "Apenas o humano pode fazer isso" } };
       const t = repo.obterTarefa(id);
       if (!t) return { status: 404, corpo: { error: "Não encontrado" } };
-      if (!store.obter(id)) return { status: 409, corpo: { error: "Só Subtarefas são editáveis aqui" } };
       const e = await corpo();
       const title = e.title === undefined ? t.title : typeof e.title === "string" ? e.title.trim() : "";
       if (!title) throw new ErroValidacao("O título da Tarefa é obrigatório");
@@ -75,7 +74,7 @@ export function abrirModuloSubtarefas(dbPath: string, repo: Repositorio) {
       const description = (e.description as string | undefined) ?? t.description;
       store.editar(id, title, description);
       registrar(t, rotuloAutor(autor), "editar",
-        `Subtarefa editada. Título: "${t.title}" → "${title}". Descrição: "${t.description}" → "${description}"`);
+        `${store.obter(id) ? "Subtarefa" : "Tarefa"} editada. Título: "${t.title}" → "${title}". Descrição: "${t.description}" → "${description}"`);
       return { status: 200, corpo: { ...t, title, description } };
     },
 
