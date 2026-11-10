@@ -65,7 +65,27 @@ Variáveis (todas opcionais):
 
 Teste do script (sem Docker real, rede nem alteração do repositório): `bash scripts/atualizar.test.sh`.
 
-*Etapa 2 (planejada, não implementada):* botão "Atualizar" na UI, só para o humano, que grava um pedido consumido por uma unit `systemd --user` e roda este mesmo script. Hoje a atualização é só pelo terminal.
+### Botão "Atualizar" (units `systemd --user`)
+
+Liga a UI/API ao mesmo `scripts/atualizar.sh`. No clone de produção:
+
+```sh
+scripts/instalar-atualizacao.sh      # gera ~/.config/systemd/user/atm-atualizar.{path,service}, habilita e grava run/configurada
+scripts/desinstalar-atualizacao.sh   # desabilita, remove units e o marcador (a API volta a informar "indisponível")
+```
+
+Idempotente. A `.path` vigia `<clone>/run/pedido-atualizacao` (gravado por `POST /atualizacao/pedido`); a `.service` remove o pedido (`ExecStartPre`, para não disparar duas vezes) e roda `scripts/atualizar.sh` do clone com `ATM_ESTADO_DIR=<clone>/run`. Modelos em `scripts/systemd/*.in`. Variáveis do instalador: `ATM_ESTADO_DIR` (run dir; deve ser o `./run` do Compose), `SYSTEMD_USER_DIR`, `ATM_SYSTEMCTL`; `--sem-systemctl` só gera os arquivos. Caminhos com espaço ou `%` são recusados. Para a unit sobreviver sem login: `loginctl enable-linger $USER`. Backups seguem `ATM_BACKUP_DIR` (padrão `~/atm-backups`; a unit não o define).
+
+Teste (systemctl falso): `bash scripts/instalar-atualizacao.test.sh`.
+
+**Verificação manual ponta a ponta (systemd real):**
+
+1. `scripts/instalar-atualizacao.sh`; `systemctl --user status atm-atualizar.path` deve estar `active (waiting)`.
+2. `curl -s -H "Authorization: Bearer $ATM_HUMAN_TOKEN" localhost:<porta>/atualizacao` → `"configurada": true, "estado": "disponivel"`.
+3. Com uma tag mais nova no `origin`: `curl -s -X POST -H "Authorization: Bearer $ATM_HUMAN_TOKEN" localhost:<porta>/atualizacao/pedido` → `202`. (Ou clique em "Atualizar" na UI.)
+4. `journalctl --user -u atm-atualizar.service -f` mostra o `atualizar.sh` rodando; `run/pedido-atualizacao` some ao iniciar.
+5. Depois, `GET /atualizacao` traz `ultima` com `resultado`/`tag_para` e o `versao` novo (mesmo conteúdo de `run/ultima-atualizacao.json`).
+6. `scripts/desinstalar-atualizacao.sh` → `GET /atualizacao` volta a `"configurada": false, "estado": "indisponivel"` e `POST /atualizacao/pedido` dá `409`.
 
 ## Contextos (RF10)
 

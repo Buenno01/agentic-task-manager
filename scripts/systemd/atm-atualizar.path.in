@@ -1,0 +1,9 @@
+[Unit]
+Description=ATM: vigia o pedido de atualização da produção
+
+[Path]
+PathExists=@RUN_DIR@/pedido-atualizacao
+Unit=atm-atualizar.service
+
+[Install]
+WantedBy=default.target
